@@ -1,14 +1,19 @@
 use crate::ast::*;
-use crate::lexer::Token;
+use crate::lexer::{Token, Lexer};
+use std::path::Path;
+use std::collections::HashSet;
+use std::fs;
 
-pub struct Parser {
+pub struct Parser<'a> {
     tokens: Vec<Token>,
     pos: usize,
+    base_path: &'a Path,
+    imported_modules: &'a mut HashSet<String>,
 }
 
-impl Parser {
-    pub fn new(tokens: Vec<Token>) -> Self {
-        Parser { tokens, pos: 0 }
+impl<'a> Parser<'a> {
+    pub fn new(tokens: Vec<Token>, base_path: &'a Path, imported_modules: &'a mut HashSet<String>) -> Self {
+        Parser { tokens, pos: 0, base_path, imported_modules }
     }
 
     fn peek(&self) -> Option<&Token> {
@@ -80,6 +85,24 @@ impl Parser {
                     "Return" => self.parse_return(),
                     "Print" => self.parse_print(),
                     "Give" => self.parse_give(),
+                    "Write" => self.parse_write(),
+                    "Read" => self.parse_read(),
+                    "List" => self.parse_list(),
+                    "Move" => self.parse_move(),
+                    "Create" => self.parse_create(),
+                    "If" => self.parse_if(),
+                    "For" => self.parse_for_each(),
+                    "External" => self.parse_external(),
+                    "Execute" => self.parse_execute(),
+                    "Add" => self.parse_add_to_list(),
+                    "open" => self.parse_open_window(),
+                    "Repeat" => self.parse_repeat_while(),
+                    "Begin" => self.parse_begin_drawing(),
+                    "Clear" => self.parse_clear_background(),
+                    "Draw" => self.parse_draw_text(),
+                    "End" => self.parse_end_drawing(),
+                    "Make" => self.parse_make_item(),
+                    "Increase" => self.parse_increase(),
                     _ => Err(format!("Unknown statement starting with '{}'", w)),
                 }
             }
@@ -98,7 +121,40 @@ impl Parser {
         self.expect_word("as")?;
         let alias = self.expect_ident()?;
         self.expect_punct('.')?;
-        Ok(Statement::Import { filename, alias })
+
+        let mut body = Vec::new();
+        if filename == "sys" {
+            println!("[ PARSE ] sys (virtual)");
+            self.imported_modules.insert(filename.clone());
+            return Ok(Statement::Import { filename, alias, body });
+        }
+
+        if !self.imported_modules.contains(&filename) {
+            println!("[ PARSE ] {}", filename);
+            self.imported_modules.insert(filename.clone());
+            
+            let file_path = self.base_path.join(&filename);
+            let source = match fs::read_to_string(&file_path) {
+                Ok(s) => s,
+                Err(e) => return Err(format!("Failed to import module {}: {}", filename, e)),
+            };
+            
+            let mut lexer = Lexer::new(&source);
+            let tokens = lexer.tokenize();
+            
+            let mut child_parser = Parser::new(tokens, self.base_path, self.imported_modules);
+            let mut ast = child_parser.parse()?;
+            
+            // Namespace prefixing for exported actions
+            for stmt in &mut ast {
+                if let Statement::DefineAction { name, .. } = stmt {
+                    *name = format!("{}_{}", alias, name);
+                }
+            }
+            body = ast;
+        }
+
+        Ok(Statement::Import { filename, alias, body })
     }
 
     // Define an action called process_login taking username and password:
@@ -133,7 +189,11 @@ impl Parser {
     fn parse_enforce(&mut self) -> Result<Statement, String> {
         self.expect_word("Enforce")?;
         self.expect_word("that")?;
-        self.expect_word("the")?;
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "the" {
+                self.advance();
+            }
+        }
         let name = self.expect_ident()?;
         self.expect_word("is")?;
         self.expect_word("not")?;
@@ -150,12 +210,25 @@ impl Parser {
         Ok(Statement::Enforce { name, condition: "not empty".into(), crash_msg })
     }
 
-    // Set the user_role to auth.get_role taking the username.
     fn parse_set(&mut self) -> Result<Statement, String> {
         self.expect_word("Set")?;
-        self.expect_word("the")?;
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "the" {
+                self.advance();
+            }
+        }
         let name = self.expect_ident()?;
         self.expect_word("to")?;
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "item" {
+                self.advance();
+                let index = self.parse_expr()?;
+                self.expect_word("in")?;
+                let list = self.expect_ident()?;
+                self.expect_punct('.')?;
+                return Ok(Statement::GetItem { identifier: name, index, list });
+            }
+        }
         let value = self.parse_expr()?;
         self.expect_punct('.')?;
         Ok(Statement::Assign { name, value })
@@ -194,10 +267,258 @@ impl Parser {
         Ok(Statement::Give { src, dst })
     }
 
+    fn parse_write(&mut self) -> Result<Statement, String> {
+        self.expect_word("Write")?;
+        let data = self.parse_expr()?;
+        self.expect_word("to")?;
+        let path = self.parse_expr()?;
+        self.expect_punct('.')?;
+        Ok(Statement::Write { data, path })
+    }
+
+    fn parse_read(&mut self) -> Result<Statement, String> {
+        self.expect_word("Read")?;
+        let path = self.parse_expr()?;
+        self.expect_word("as")?;
+        let identifier = self.expect_ident()?;
+        self.expect_punct('.')?;
+        Ok(Statement::Read { path, identifier })
+    }
+
+    fn parse_list(&mut self) -> Result<Statement, String> {
+        self.expect_word("List")?;
+        self.expect_word("files")?;
+        self.expect_word("in")?;
+        let path = self.parse_expr()?;
+        self.expect_word("as")?;
+        let identifier = self.expect_ident()?;
+        self.expect_punct('.')?;
+        Ok(Statement::List { path, identifier })
+    }
+
+    fn parse_move(&mut self) -> Result<Statement, String> {
+        self.expect_word("Move")?;
+        let path = self.parse_expr()?;
+        self.expect_word("to")?;
+        let destination = self.parse_expr()?;
+        self.expect_punct('.')?;
+        Ok(Statement::Move { path, destination })
+    }
+
+    fn parse_create(&mut self) -> Result<Statement, String> {
+        self.expect_word("Create")?;
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "folder" {
+                self.advance();
+                let path = self.parse_expr()?;
+                self.expect_punct('.')?;
+                return Ok(Statement::CreateFolder { path });
+            }
+        }
+        
+        self.expect_word("List")?;
+        self.expect_word("called")?;
+        let name = self.expect_ident()?;
+        self.expect_word("containing")?;
+        let mut items = Vec::new();
+        items.push(self.parse_expr()?);
+        while let Some(Token::Word(w)) = self.peek() {
+            if w == "and" || w == "," {
+                self.advance();
+                items.push(self.parse_expr()?);
+            } else {
+                break;
+            }
+        }
+        self.expect_punct('.')?;
+        Ok(Statement::CreateList { name, items })
+    }
+
+    fn parse_add_to_list(&mut self) -> Result<Statement, String> {
+        self.expect_word("Add")?;
+        let item = self.parse_expr()?;
+        self.expect_word("to")?;
+        let list_name = self.expect_ident()?;
+        self.expect_punct('.')?;
+        Ok(Statement::AddToList { item, list_name })
+    }
+
+    fn parse_open_window(&mut self) -> Result<Statement, String> {
+        self.expect_word("open")?;
+        self.expect_word("window")?;
+        self.expect_word("with")?;
+        self.expect_word("width")?;
+        let width = self.parse_expr()?;
+        self.expect_word("and")?;
+        self.expect_word("height")?;
+        let height = self.parse_expr()?;
+        self.expect_word("titled")?;
+        let title = self.parse_expr()?;
+        self.expect_punct('.')?;
+        Ok(Statement::CallAction { name: "ui_InitWindow".into(), args: vec![width, height, title] })
+    }
+
+    fn parse_repeat_while(&mut self) -> Result<Statement, String> {
+        self.expect_word("Repeat")?;
+        self.expect_word("while")?;
+        self.expect_word("window")?;
+        self.expect_word("is")?;
+        self.expect_word("not")?;
+        self.expect_word("closing")?;
+        self.expect_punct(':')?;
+        let body = self.parse_block()?;
+        Ok(Statement::WhileNot { condition_action: "ui_WindowShouldClose".into(), body })
+    }
+
+    fn parse_begin_drawing(&mut self) -> Result<Statement, String> {
+        self.expect_word("Begin")?;
+        self.expect_word("drawing")?;
+        self.expect_punct('.')?;
+        Ok(Statement::CallAction { name: "ui_BeginDrawing".into(), args: vec![] })
+    }
+
+    fn parse_clear_background(&mut self) -> Result<Statement, String> {
+        self.expect_word("Clear")?;
+        self.expect_word("background")?;
+        self.expect_word("to")?;
+        let color = self.expect_ident()?;
+        self.expect_punct('.')?;
+        Ok(Statement::CallAction { name: "ui_ClearBackground".into(), args: vec![crate::ast::Expr::Identifier(color)] })
+    }
+
+    fn parse_draw_text(&mut self) -> Result<Statement, String> {
+        self.expect_word("Draw")?;
+        self.expect_word("text")?;
+        let mut text_args = Vec::new();
+        text_args.push(self.parse_expr()?);
+        while let Some(Token::Word(w)) = self.peek() {
+            if w == "and" {
+                self.advance();
+                text_args.push(self.parse_expr()?);
+            } else {
+                break;
+            }
+        }
+        self.expect_word("at")?;
+        self.expect_word("position")?;
+        let x = self.parse_expr()?;
+        if let Some(Token::Punctuation(p)) = self.peek() {
+            if *p == ',' {
+                self.advance();
+            }
+        }
+        let y = self.parse_expr()?;
+        self.expect_punct('.')?;
+        let mut final_args = text_args;
+        final_args.push(x);
+        final_args.push(y);
+        Ok(Statement::CallAction { name: "ui_DrawText".into(), args: final_args })
+    }
+
+    fn parse_end_drawing(&mut self) -> Result<Statement, String> {
+        self.expect_word("End")?;
+        self.expect_word("drawing")?;
+        self.expect_punct('.')?;
+        Ok(Statement::CallAction { name: "ui_EndDrawing".into(), args: vec![] })
+    }
+
+    fn parse_make_item(&mut self) -> Result<Statement, String> {
+        self.expect_word("Make")?;
+        self.expect_word("item")?;
+        let index = self.parse_expr()?;
+        self.expect_word("in")?;
+        let list = self.expect_ident()?;
+        let value = self.parse_expr()?;
+        self.expect_punct('.')?;
+        Ok(Statement::SetItem { index, list, value })
+    }
+
+    fn parse_increase(&mut self) -> Result<Statement, String> {
+        self.expect_word("Increase")?;
+        let name = self.expect_ident()?;
+        self.expect_word("by")?;
+        let amount = self.parse_expr()?;
+        self.expect_punct('.')?;
+        Ok(Statement::Increase { name, amount })
+    }
+
+    fn parse_if(&mut self) -> Result<Statement, String> {
+        self.expect_word("If")?;
+        let ident = self.expect_ident()?;
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "key" {
+                self.advance();
+                self.expect_word("is")?;
+                self.expect_word("pressed")?;
+                self.expect_punct(':')?;
+                let body = self.parse_block()?;
+                return Ok(Statement::IfKeyPressed { key: ident, body });
+            } else if w == "ends" {
+                self.advance();
+                self.expect_word("with")?;
+                let extension = match self.parse_expr()? {
+                    Expr::StringLit(s) => s,
+                    _ => return Err("Expected string literal for extension".into()),
+                };
+                self.expect_punct(':')?;
+                let body = self.parse_block()?;
+                return Ok(Statement::IfEndsWith { filename: ident, extension, body });
+            }
+        }
+        Err("Unsupported If format".into())
+    }
+
+    fn parse_for_each(&mut self) -> Result<Statement, String> {
+        self.expect_word("For")?;
+        self.expect_word("each")?;
+        let item = self.expect_ident()?;
+        self.expect_word("in")?;
+        let collection = self.expect_ident()?;
+        self.expect_punct(':')?;
+        let body = self.parse_block()?;
+        Ok(Statement::ForEach { item, collection, body })
+    }
+
+    fn parse_external(&mut self) -> Result<Statement, String> {
+        self.expect_word("External")?;
+        let namespace = self.expect_ident()?;
+        let action = self.expect_ident()?;
+        self.expect_word("from")?;
+        let lib_path = match self.parse_expr()? {
+            Expr::StringLit(s) => s,
+            _ => return Err("Expected string literal for library path".into()),
+        };
+        self.expect_punct('.')?;
+        Ok(Statement::External { namespace, action, lib_path })
+    }
+
+    fn parse_execute(&mut self) -> Result<Statement, String> {
+        self.expect_word("Execute")?;
+        let namespace = self.expect_ident()?;
+        let action = self.expect_ident()?;
+        self.expect_word("with")?;
+        let mut args = Vec::new();
+        args.push(self.parse_expr()?);
+        while let Some(Token::Word(w)) = self.peek() {
+            if w == "and" {
+                self.advance();
+                args.push(self.parse_expr()?);
+            } else {
+                break;
+            }
+        }
+        self.expect_punct('.')?;
+        Ok(Statement::Execute { namespace, action, args })
+    }
+
     // Check the user_role:
     fn parse_check(&mut self) -> Result<Statement, String> {
         self.expect_word("Check")?;
-        self.expect_word("the")?;
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "the" {
+                self.advance();
+            }
+        }
         let name = self.expect_ident()?;
         self.expect_punct(':')?;
 

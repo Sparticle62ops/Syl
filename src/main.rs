@@ -3,6 +3,7 @@ mod lexer;
 mod parser;
 mod ir;
 mod codegen;
+mod emit_native;
 
 use std::fs;
 use std::path::Path;
@@ -10,26 +11,35 @@ use lexer::Lexer;
 use parser::Parser;
 use ir::IRGenerator;
 use codegen::CodeGen;
+use emit_native::NativeEmitter;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: syl <file.syl>");
+    if args.len() < 3 {
+        eprintln!("Usage: syl [build|run] <file.syl> [--standalone]");
         std::process::exit(1);
     }
 
-    let filename = &args[1];
+    let command = &args[1];
+    let filename = &args[2];
+    let is_standalone = args.len() > 3 && args[3] == "--standalone";
     let source = fs::read_to_string(filename).unwrap_or_else(|_| {
         eprintln!("Failed to read file: {}", filename);
         std::process::exit(1);
     });
 
-    println!("Compiling {}...", filename);
+    println!("Syl Compiler [v0.3.0-alpha]");
+    println!("[ PARSE ] {}", filename);
+
+    let file_path = Path::new(filename);
+    let base_path = file_path.parent().unwrap_or(Path::new(""));
+    let mut imported_modules = std::collections::HashSet::new();
+    imported_modules.insert(filename.clone());
 
     let mut lexer = Lexer::new(&source);
     let tokens = lexer.tokenize();
 
-    let mut parser = Parser::new(tokens);
+    let mut parser = Parser::new(tokens, base_path, &mut imported_modules);
     let ast = match parser.parse() {
         Ok(ast) => ast,
         Err(e) => {
@@ -38,8 +48,7 @@ fn main() {
         }
     };
 
-    println!("AST successfully generated!");
-
+    // AST Generated (silent for CLI feedback standard)
     // Generate Helix IR
     let mut ir_gen = IRGenerator::new();
     ir_gen.generate(&ast);
@@ -52,24 +61,66 @@ fn main() {
     fs::write(&hlx_filename, hlx_content).unwrap_or_else(|_| {
         eprintln!("Failed to write {}", hlx_filename);
     });
-    println!("Generated Helix IR: {}", hlx_filename);
+    println!("[ HELIX ] {}", hlx_filename);
 
-    // Generate C Code
+    if is_standalone {
+        println!("[ NATIVE ] Initializing Cranelift JIT/AOT Compiler...");
+        let mut native = NativeEmitter::new();
+        native.compile_ast(&ast);
+        let obj_data = native.finish();
+        
+        let obj_filename = format!("{}.obj", file_stem);
+        fs::write(&obj_filename, &obj_data).unwrap_or_else(|_| {
+            eprintln!("Failed to write {}", obj_filename);
+        });
+        
+        let exe_filename = if cfg!(target_os = "windows") {
+            format!("{}.exe", file_stem)
+        } else {
+            file_stem.to_string()
+        };
+
+        NativeEmitter::invoke_linker(&obj_filename, &exe_filename);
+        return;
+    }
+
+    // Generate C Code (Fallback / Default mode)
     let mut codegen = CodeGen::new();
-    codegen.generate(&ast);
     
-    // Output dummy functions for 'auth_get_role' etc. to make it compile via gcc if wanted
+    // Wrap top-level statements in main()
     let mut c_final = codegen.c_code.clone();
-    c_final.push_str("\n// --- Dummy dependencies for compilation ---\n");
-    c_final.push_str("String auth_get_role(String username) { return \"Admin\"; }\n");
-    c_final.push_str("void auth_log_admin_login() { printf(\"Admin logged in\\n\"); }\n");
-    c_final.push_str("\nint main() {\n    printf(\"%s\\n\", process_login(\"Alice\", \"pass123\"));\n    return 0;\n}\n");
+    c_final.push_str("\nint main() {\n");
+    codegen.c_code = "".to_string(); // reset for generation
+    codegen.generate(&ast);
+    c_final.push_str(&codegen.c_code);
+    c_final.push_str("\n    return 0;\n}\n");
 
     let c_filename = format!("{}.c", file_stem);
     fs::write(&c_filename, c_final).unwrap_or_else(|_| {
         eprintln!("Failed to write {}", c_filename);
     });
-    println!("Generated C code: {}", c_filename);
-    
-    println!("Compilation pipeline completed successfully.");
+    println!("[ TRANS ] {}", c_filename);
+
+    if command == "run" {
+        println!("[ BUILD ] Compiling with TCC...");
+        let tcc_path = "tools/tcc/tcc/tcc.exe";
+        let exe_filename = format!("{}.exe", file_stem);
+        
+        let status = std::process::Command::new(tcc_path)
+            .args(&[&c_filename, "raylib.dll", "-I.", "-L.", "-o", &exe_filename])
+            .status();
+
+        if let Ok(s) = status {
+            if s.success() {
+                println!("[ RUN ] Executing {}...", exe_filename);
+                let _ = std::process::Command::new(format!("./{}", exe_filename)).status();
+            } else {
+                eprintln!("[ ERROR ] TCC compilation failed.");
+            }
+        } else {
+            eprintln!("[ ERROR ] Could not find TCC at {}. Please run launch_syl.ps1 first.", tcc_path);
+        }
+    } else {
+        println!("[ BUILD ] Success. Output: ./{}", c_filename);
+    }
 }

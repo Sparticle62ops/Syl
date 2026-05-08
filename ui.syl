@@ -1,0 +1,6 @@
+External raylib InitWindow from "raylib.dll".
+External raylib WindowShouldClose from "raylib.dll".
+External raylib BeginDrawing from "raylib.dll".
+External raylib ClearBackground from "raylib.dll".
+External raylib DrawText from "raylib.dll".
+External raylib EndDrawing from "raylib.dll".

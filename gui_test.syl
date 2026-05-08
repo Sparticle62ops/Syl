@@ -1,0 +1,12 @@
+Bring in "core.syl" as core.
+Bring in "ui.syl" as ui.
+
+Please open a window with width 800 and height 600 titled "Syl Native UI".
+
+Repeat while the window is not closing:
+    Begin drawing now.
+    Clear the background to white.
+    Draw text "This is Syl running at Native Speed" at position 100, 100.
+    End drawing.
+
+Print "Window closed successfully.".

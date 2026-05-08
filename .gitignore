@@ -1,5 +1,10 @@
-/target
-
 /target/
-
+/tools/
 *.exe
+*.dll
+*.h
+*.lib
+*.obj
+*.hlx
+# Keep .c files if they are intentional samples, but ignore output.c
+output.c

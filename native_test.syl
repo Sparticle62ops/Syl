@@ -1,0 +1,4 @@
+Please bring in "core.syl" as core now.
+
+Set a message to "Hello from pure native machine code!".
+Execute libc puts with message.

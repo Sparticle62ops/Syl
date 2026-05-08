@@ -1,0 +1,6 @@
+[target.x86_64-pc-windows-gnu]
+linker = "C:\\Users\\6041742\\Downloads\\SylDevelopmentandTesting\\tools\\zig\\zig-link-gnu.bat"
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[build]
+target = "x86_64-pc-windows-gnu"

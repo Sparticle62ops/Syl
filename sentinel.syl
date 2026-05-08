@@ -1,0 +1,20 @@
+Bring in "sys" as sys.
+
+Note: The Sentinel - A professional file organizer.
+
+Print "Running Sentinel...".
+Create folder "Images".
+Create folder "Documents".
+
+List files in "." as files.
+
+For each file in files:
+    If file ends with ".jpg":
+        Print "Found image, moving...".
+        Move file to "Images/file".
+    
+    If file ends with ".pdf":
+        Print "Found document, moving...".
+        Move file to "Documents/file".
+
+Print "Organization complete.".

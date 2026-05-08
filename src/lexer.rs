@@ -124,7 +124,30 @@ impl Lexer {
                     break;
                 }
             }
-            return Some(Token::Word(s));
+            if s.eq_ignore_ascii_case("Note") && self.pos < self.chars.len() && self.chars[self.pos] == ':' {
+                self.pos += 1;
+                while self.pos < self.chars.len() && self.chars[self.pos] != '\n' {
+                    self.pos += 1;
+                }
+                return self.next_token();
+            }
+
+            let fillers = ["the", "a", "an", "please", "now"];
+            for f in &fillers {
+                if s.eq_ignore_ascii_case(f) {
+                    return self.next_token();
+                }
+            }
+
+            let mut final_s = s.clone();
+            let keywords = ["Set", "Print", "Give", "Bring", "Define", "Enforce", "Check", "Run", "Return", "When", "Otherwise", "to", "in", "as", "action", "called", "taking", "and", "that", "is", "not", "empty", "or", "crash", "with", "background", "it", "Write", "Read", "List", "files", "For", "each", "file", "If", "ends", "Move", "Create", "folder", "External", "from", "Execute", "key", "pressed", "item", "Make", "Increase", "by", "Space"];
+            for kw in &keywords {
+                if s.eq_ignore_ascii_case(kw) {
+                    final_s = kw.to_string();
+                    break;
+                }
+            }
+            return Some(Token::Word(final_s));
         }
 
         if ch == '.' || ch == ':' || ch == ',' {

@@ -12,7 +12,7 @@ impl IRGenerator {
         IRGenerator {
             var_map: HashMap::new(),
             next_reg: 0,
-            instructions: Vec::new(),
+            instructions: vec!["SYLA".to_string()],
         }
     }
 
@@ -101,9 +101,10 @@ impl IRGenerator {
                 self.emit('R', 'O', 0, 0);
                 self.generate(body);
             }
-            Statement::Import { alias, .. } => {
+            Statement::Import { alias, body, .. } => {
                 let reg = self.get_reg(alias);
                 self.emit('B', 'O', reg, 0);
+                self.generate(body);
             }
             Statement::DefineAction { name, body, .. } => {
                 let reg = self.get_reg(name);
@@ -136,6 +137,35 @@ impl IRGenerator {
             Statement::Print { value } => {
                 self.gen_expr(value, 0);
                 self.emit('P', 'O', 0, 0);
+            }
+            Statement::Write { data, path } => {
+                self.gen_expr(data, 0);
+                self.gen_expr(path, 1);
+                self.emit('W', 'O', 0, 1);
+            }
+            Statement::Read { path, identifier } => {
+                self.gen_expr(path, 0);
+                let reg = self.get_reg(identifier);
+                self.emit('R', 'O', 0, reg);
+            }
+            Statement::List { path, identifier } => {
+                self.gen_expr(path, 0);
+                let reg = self.get_reg(identifier);
+                self.emit('L', 'O', 0, reg);
+            }
+            Statement::Move { path, destination } => {
+                self.gen_expr(path, 0);
+                self.gen_expr(destination, 1);
+                self.emit('m', 'O', 0, 1);
+            }
+            Statement::CreateFolder { path } => {
+                self.gen_expr(path, 0);
+                self.emit('K', 'O', 0, 0);
+            }
+            Statement::IfEndsWith { filename, body, .. } => {
+                let reg = self.get_reg(filename);
+                self.emit('I', 'O', reg, 0);
+                self.generate(body);
             }
         }
     }

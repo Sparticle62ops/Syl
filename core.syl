@@ -1,0 +1,4 @@
+Note: The Core Syl Standard Library
+
+External libc puts from "msvcrt.dll".
+External libc system from "msvcrt.dll".

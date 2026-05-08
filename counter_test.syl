@@ -1,0 +1,16 @@
+Bring in "core.syl" as core.
+Bring in "ui.syl" as ui.
+
+Set the count to 0.
+Please open a window with width 400 and height 300 titled "Syl Counter".
+
+Repeat while the window is not closing:
+    If the Space key is pressed:
+        Increase the count by 1.
+    
+    Begin drawing.
+    Clear the background to black.
+    Draw text "Count: " and the count at position 50, 100.
+    End drawing.
+
+Print "Final count was " and the count.

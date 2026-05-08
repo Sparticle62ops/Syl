@@ -1,0 +1,8 @@
+Bring in "sys" as sys.
+
+Note: Create a file and read it back.
+Set content to "Syl is power.".
+Write content to "test.txt".
+
+Read "test.txt" as result.
+Print result.

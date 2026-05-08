@@ -1,0 +1,3 @@
+Bring in "math.syl" as math.
+Set the result to math.add taking 5 and 3.
+Print the result.
