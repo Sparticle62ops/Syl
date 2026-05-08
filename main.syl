@@ -1,0 +1,13 @@
+Bring in "auth.syl" as auth.
+
+Define an action called process_login taking username and password:
+    Enforce that the username is not empty, or crash with "Missing username".
+    
+    Set the user_role to auth.get_role taking the username.
+    
+    Check the user_role:
+        When it is "Admin":
+            Run auth.log_admin_login in the background.
+            Return "Welcome Admin".
+        Otherwise:
+            Return "Welcome User".
