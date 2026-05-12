@@ -657,16 +657,44 @@ impl<'a> Parser<'a> {
         let mut left = self.parse_primary_expr()?;
         
         while let Some(Token::Word(w)) = self.peek() {
-            if w == "of" {
-                self.advance();
-                let instance = self.expect_ident()?;
-                if let Expr::Identifier(field) = left {
-                    left = Expr::GetField { field_name: field, entity_instance: instance };
-                } else {
-                    return Err(self.error_msg("I understood you are using 'of', but I was expecting a property name before it."));
+            match w.as_str() {
+                "of" => {
+                    self.advance();
+                    let instance = self.expect_ident()?;
+                    if let Expr::Identifier(field) = left {
+                        left = Expr::GetField { field_name: field, entity_instance: instance };
+                    } else {
+                        return Err(self.error_msg("I understood you are using 'of', but I was expecting a property name before it."));
+                    }
                 }
-            } else {
-                break;
+                "joined" => {
+                    self.advance();
+                    self.expect_word("with")?;
+                    let right = self.parse_expr()?;
+                    left = Expr::Join { left: Box::new(left), right: Box::new(right) };
+                }
+                "to" => {
+                    // Check for "to the power of"
+                    let saved_pos = self.pos;
+                    self.advance();
+                    if let Some(Token::Word(w2)) = self.peek() {
+                        if w2 == "the" {
+                            self.advance();
+                            if let Some(Token::Word(w3)) = self.peek() {
+                                if w3 == "power" {
+                                    self.advance();
+                                    self.expect_word("of")?;
+                                    let right = self.parse_expr()?;
+                                    left = Expr::Pow { base: Box::new(left), exponent: Box::new(right) };
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                    self.pos = saved_pos; // backtrack
+                    break;
+                }
+                _ => break,
             }
         }
         Ok(left)
@@ -678,6 +706,43 @@ impl<'a> Parser<'a> {
             Some(Token::StringLit(s)) => Ok(Expr::StringLit(s)),
             Some(Token::Number(n)) => Ok(Expr::Number(n)),
             Some(Token::Word(w)) => {
+                match w.as_str() {
+                    "the" => {
+                        if let Some(Token::Word(w2)) = self.peek() {
+                            match w2.as_str() {
+                                "square" => {
+                                    self.advance();
+                                    self.expect_word("root")?;
+                                    self.expect_word("of")?;
+                                    let val = self.parse_expr()?;
+                                    return Ok(Expr::Sqrt { value: Box::new(val) });
+                                }
+                                "size" => {
+                                    self.advance();
+                                    self.expect_word("of")?;
+                                    let val = self.parse_expr()?;
+                                    return Ok(Expr::FileSize { path: Box::new(val) });
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    "a" => {
+                        if let Some(Token::Word(w2)) = self.peek() {
+                            if w2 == "random" {
+                                self.advance();
+                                self.expect_word("number")?;
+                                self.expect_word("between")?;
+                                let min = self.parse_expr()?;
+                                self.expect_word("and")?;
+                                let max = self.parse_expr()?;
+                                return Ok(Expr::Random { min: Box::new(min), max: Box::new(max) });
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+
                 let mut is_call = w.contains('.');
                 let mut args = Vec::new();
                 

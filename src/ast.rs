@@ -5,6 +5,11 @@ pub enum Expr {
     Identifier(String),
     Call { action: String, args: Vec<Expr> },
     GetField { field_name: String, entity_instance: String },
+    Join { left: Box<Expr>, right: Box<Expr> },
+    Sqrt { value: Box<Expr> },
+    Pow { base: Box<Expr>, exponent: Box<Expr> },
+    Random { min: Box<Expr>, max: Box<Expr> },
+    FileSize { path: Box<Expr> },
 }
 
 #[derive(Debug, Clone)]

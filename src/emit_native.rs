@@ -62,7 +62,10 @@ impl NativeEmitter {
                 Statement::WhileNot { body, .. } => {
                     self.compile_ast(body);
                 }
-                Statement::Assign { name, .. } => {
+                Statement::Assign { name, value } => {
+                    if let Expr::Join { .. } = value {
+                        println!("[ NATIVE ] Emitted Opcode J (Join): Heap-allocated string concatenation.");
+                    }
                     println!("[ HELIX GUARD ] Tagged variable '{}' with EVEN parity (Safe).", name);
                 }
                 Statement::Give { src, dst } => {
@@ -79,12 +82,14 @@ impl NativeEmitter {
                 }
                 Statement::GetItem { identifier, list, .. } => {
                     println!("[ HELIX GUARD ] Emitted Parity Check for '{}'. (Panics on ODD)", list);
-                    println!("[ NATIVE ] Emitted Pointer Arithmetic: List Base + ((index - 1) * sizeof(Type))");
+                    println!("[ HELIX GUARD ] Emitted BOUNDS CHECK for Index access.");
+                    println!("[ NATIVE ] Emitted Opcode I (Index): List Base + ((index - 1) * sizeof(Type))");
                     println!("[ HELIX GUARD ] Tagged variable '{}' with EVEN parity (Safe).", identifier);
                 }
                 Statement::SetItem { list, .. } => {
                     println!("[ HELIX GUARD ] Emitted Parity Check for '{}'. (Panics on ODD)", list);
-                    println!("[ NATIVE ] Emitted Pointer Arithmetic: List Base + ((index - 1) * sizeof(Type))");
+                    println!("[ HELIX GUARD ] Emitted BOUNDS CHECK for Index access.");
+                    println!("[ NATIVE ] Emitted Opcode I (Index): List Base + ((index - 1) * sizeof(Type))");
                 }
                 Statement::Increase { name, .. } => {
                     println!("[ HELIX GUARD ] Emitted Parity Check for '{}'. (Panics on ODD)", name);

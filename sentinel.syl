@@ -1,19 +1,19 @@
 Bring in "sys" as sys.
-Bring in "net" as net.
+Bring in "math" as math.
 
-Note: The Sentinel v0.9.5 - Entity-driven file management.
+Note: Sentinel Pro v0.9.8 - Safety and Expressions.
 
-Define an Entity called ArchiveJob:
-    Set file_path to "".
-    Set priority to "Normal".
+Print "Sentinel Pro is initializing...".
 
-Define an action called process_job taking task:
-    Print "Processing " and file_path of task.
-    Move file_path of task to "Archive/".
+List files in "." as my_files.
+For each f in my_files:
+    Set file_size to the size of f.
+    
+    If file_size is greater than 1000000:
+        Set warning to f joined with " is a large file.".
+        Print warning.
+        Move f to "Large_Files/".
+    Otherwise:
+        Print f joined with " is small, skipping.".
 
-List files in "." as files.
-For each f in files:
-    If f ends with ".zip":
-        Create an ArchiveJob called current_task.
-        Set file_path of current_task to f.
-        Run process_job taking current_task in the background.
+Print "System organization is complete.".

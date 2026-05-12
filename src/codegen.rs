@@ -12,6 +12,7 @@ impl CodeGen {
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <math.h>
 #include "raylib.h"
 
 // Syl v0.1 C Transpiler Preamble
@@ -316,6 +317,17 @@ int ends_with(char* str, char* suffix) {
                 let amt_str = self.gen_expr(amount);
                 self.push_line(&format!("{} += {};", name, amt_str));
             }
+            Statement::GetItem { identifier, index, list } => {
+                let idx_str = self.gen_expr(index);
+                self.push_line(&format!("if ({} < 1 || {} > {}_count) {{ fprintf(stderr, \"[ HELIX FATAL ] Index out of bounds: %d\\n\", {}); exit(1); }}", idx_str, idx_str, list, idx_str));
+                self.push_line(&format!("String {} = {}[{}-1];", identifier, list, idx_str));
+            }
+            Statement::SetItem { index, list, value } => {
+                let idx_str = self.gen_expr(index);
+                let val_str = self.gen_expr(value);
+                self.push_line(&format!("if ({} < 1 || {} > {}_count) {{ fprintf(stderr, \"[ HELIX FATAL ] Index out of bounds: %d\\n\", {}); exit(1); }}", idx_str, idx_str, list, idx_str));
+                self.push_line(&format!("{}[{}-1] = strdup({});", list, idx_str, val_str));
+            }
             _ => {
                 self.push_line("// Unimplemented statement transpilation");
             }
@@ -338,6 +350,23 @@ int ends_with(char* str, char* suffix) {
             }
             Expr::GetField { field_name, entity_instance } => {
                 format!("{}.{}", entity_instance, field_name)
+            }
+            Expr::Join { left, right } => {
+                let l = self.gen_expr(left);
+                let r = self.gen_expr(right);
+                format!("({{ char* res = malloc(strlen({}) + strlen({}) + 1); strcpy(res, {}); strcat(res, {}); res; }})", l, r, l, r)
+            }
+            Expr::Sqrt { value } => {
+                format!("sqrt({})", self.gen_expr(value))
+            }
+            Expr::Pow { base, exponent } => {
+                format!("pow({}, {})", self.gen_expr(base), self.gen_expr(exponent))
+            }
+            Expr::Random { min, max } => {
+                format!("(rand() % ({} - {} + 1) + {})", self.gen_expr(max), self.gen_expr(min), self.gen_expr(min))
+            }
+            Expr::FileSize { path } => {
+                format!("({{ struct stat st; stat({}, &st); (int)st.st_size; }})", self.gen_expr(path))
             }
         }
     }
