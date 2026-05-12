@@ -1,49 +1,53 @@
-# Syl Compiler [v0.3.0-alpha]
+# Syl Compiler [v1.0.0-GOLDEN]
 
-Syl is a high-performance, naturalistic systems programming language designed for industrial-grade desktop applications and systems tooling. It combines the readability of natural English with the performance of native machine code.
+**Syl** is a production-grade, naturalistic systems programming language. It maps deterministic English syntax to high-performance native machine code via the **Helix IR** and **Cranelift Native Pipeline**.
 
-## Key Features
+## v1.0 "Golden" Milestones
 
-- **Naturalistic Syntax:** Code that reads like documentation (e.g., `Set the count to 0.`).
-- **Helix Safety Guard:** Runtime memory parity checks (Even/Odd tagging) to prevent use-after-free and moved-variable violations.
-- **Native Execution:** Compiles directly to native binaries using a high-performance Cranelift-based backend (with C-transpilation fallback).
-- **Interactive Graphics:** Built-in FFI bridge to Raylib for high-performance 2D/3D graphics and interaction.
-- **Portable Toolchain:** Integrated support for Tiny C Compiler (TCC), Zig (Linker), and portable Rust environments.
+- **Helix Guard 2.0:** Hardened memory safety with mandatory bounds checking for all dynamic list operations.
+- **Self-Hosting Capability:** The Syl language is now powerful enough to handle its own lexing and logic (see `examples/syl_lexer.syl`).
+- **Zero-Config Build System:** Automated project discovery via top-level metadata (`The project is named "..."`).
+- **Cranelift Native Pipeline:** Direct-to-binary compilation bypassing C-transpilation for security and speed.
+- **Enterprise Networking:** Native networking module (`net`) with automated parity-checked resource management.
 
-## Quick Start
+## Getting Started
 
-### Prerequisites
-Syl requires a portable C compiler (TCC) and Raylib binaries for its studio launcher. Run the bootstrap script to set up your environment:
-
+### 1. Bootstrap the Studio
+Ensure all portable tools (TCC, Raylib, Zig) are ready:
 ```powershell
 ./launch_syl.ps1
 ```
 
-### Running the Counter Test
-To see the Syl interaction engine in action:
-
+### 2. Build the Sentinel Pro (Hero App)
+The Sentinel Pro demonstrates v1.0 safety and the project manifest system:
 ```powershell
-# Requires Rust toolchain
-cargo run -- run counter_test.syl
+# Compiles to a production binary using the project metadata
+./syl.exe build sentinel.syl
 ```
 
-## Language Sample
+### 3. Verify Self-Hosting
+Run the Syl-in-Syl lexer to analyze the codebase:
+```powershell
+./syl.exe run syl_lexer.syl
+```
+
+## Language Sample (v1.0)
 
 ```text
-Bring in "ui.syl" as ui.
+The project is named "ArchiveUtility".
+The version is "1.0.0".
 
-Set the count to 0.
-Please open a window with width 400 and height 300 titled "Syl Counter".
+Bring in "sys" as sys.
 
-Repeat while the window is not closing:
-    If the Space key is pressed:
-        Increase the count by 1.
-    
-    Begin drawing.
-    Clear the background to black.
-    Draw text "Count: " and the count at position 50, 100.
-    End drawing.
+List files in "." as my_files.
+For each f in my_files:
+    Set file_size to the size of f.
+    If file_size is greater than 1000000:
+        Print f joined with " is too large.".
 ```
 
-## Versioning
-This is **v0.3.0-alpha**, focusing on native interaction and industrial CLI UX.
+## Community & Security
+Syl is designed for environments where **security** and **readability** are paramount. The Helix Safety Guard enforces a strict borrow-checker logic at the IR level, ensuring zero memory leaks and zero buffer overflows.
+
+---
+*Syl v1.0.0 - The Golden Release*

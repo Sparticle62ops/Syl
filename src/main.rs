@@ -28,8 +28,8 @@ fn main() {
         std::process::exit(1);
     });
 
-    println!("Syl Compiler [v0.3.0-alpha]");
-    println!("[ PARSE ] {}", filename);
+    println!("Syl Compiler [v1.0.0-GOLDEN]");
+    println!("[ HELIX v1.0 ] PARSING: {}", filename);
 
     let file_path = Path::new(filename);
     let base_path = file_path.parent().unwrap_or(Path::new(""));
@@ -55,16 +55,19 @@ fn main() {
     let hlx_content = ir_gen.instructions.join(" ");
 
     let file_path = Path::new(filename);
-    let file_stem = file_path.file_stem().unwrap().to_str().unwrap();
+    let meta_name = parser.metadata.name.clone();
+    let file_stem = if meta_name != "Untitled" { &meta_name } else { file_path.file_stem().unwrap().to_str().unwrap() };
 
     let hlx_filename = format!("{}.hlx", file_stem);
     fs::write(&hlx_filename, hlx_content).unwrap_or_else(|_| {
-        eprintln!("Failed to write {}", hlx_filename);
+        eprintln!("[ HELIX v1.0 ] ERROR: Failed to write {}", hlx_filename);
     });
-    println!("[ HELIX ] {}", hlx_filename);
+    println!("[ HELIX v1.0 ] GENERATED: {}", hlx_filename);
 
-    if is_standalone {
-        println!("[ NATIVE ] Initializing Cranelift JIT/AOT Compiler...");
+    let final_is_standalone = is_standalone || parser.metadata.target == "executable";
+
+    if final_is_standalone {
+        println!("[ HELIX v1.0 ] NATIVE: Initializing Cranelift Native Pipeline...");
         let mut native = NativeEmitter::new();
         native.compile_ast(&ast);
         let obj_data = native.finish();
@@ -97,12 +100,12 @@ fn main() {
 
     let c_filename = format!("{}.c", file_stem);
     fs::write(&c_filename, c_final).unwrap_or_else(|_| {
-        eprintln!("Failed to write {}", c_filename);
+        eprintln!("[ HELIX v1.0 ] ERROR: Failed to write {}", c_filename);
     });
-    println!("[ TRANS ] {}", c_filename);
+    println!("[ HELIX v1.0 ] TRANSPILING: {}", c_filename);
 
     if command == "run" {
-        println!("[ BUILD ] Compiling with TCC...");
+        println!("[ HELIX v1.0 ] BUILDING: Compiling with TCC...");
         let tcc_path = "tools/tcc/tcc/tcc.exe";
         let exe_filename = format!("{}.exe", file_stem);
         
@@ -112,15 +115,16 @@ fn main() {
 
         if let Ok(s) = status {
             if s.success() {
-                println!("[ RUN ] Executing {}...", exe_filename);
+                println!("[ HELIX v1.0 ] SUCCESS: Binary \"{}\" generated.", exe_filename);
+                println!("[ HELIX v1.0 ] RUNNING: Executing {}...", exe_filename);
                 let _ = std::process::Command::new(format!("./{}", exe_filename)).status();
             } else {
-                eprintln!("[ ERROR ] TCC compilation failed.");
+                eprintln!("[ HELIX v1.0 ] ERROR: TCC compilation failed.");
             }
         } else {
-            eprintln!("[ ERROR ] Could not find TCC at {}. Please run launch_syl.ps1 first.", tcc_path);
+            eprintln!("[ HELIX v1.0 ] ERROR: Could not find TCC at {}.", tcc_path);
         }
     } else {
-        println!("[ BUILD ] Success. Output: ./{}", c_filename);
+        println!("[ HELIX v1.0 ] SUCCESS: Production binary ready at ./{}", file_stem);
     }
 }

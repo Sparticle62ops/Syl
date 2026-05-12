@@ -140,7 +140,7 @@ impl Lexer {
             }
 
             let mut final_s = s.clone();
-            let keywords = ["Set", "Print", "Give", "Bring", "Define", "Enforce", "Check", "Run", "Return", "When", "Otherwise", "to", "in", "as", "action", "called", "taking", "and", "that", "is", "not", "empty", "or", "crash", "with", "background", "it", "Write", "Read", "List", "files", "For", "each", "file", "If", "ends", "Move", "Create", "folder", "External", "from", "Execute", "key", "pressed", "item", "Make", "Increase", "by", "Space", "Entity", "of", "Download", "joined", "square", "root", "power", "random", "between", "size"];
+            let keywords = ["Set", "Print", "Give", "Bring", "Define", "Enforce", "Check", "Run", "Return", "When", "Otherwise", "to", "in", "as", "action", "called", "taking", "and", "that", "is", "not", "empty", "or", "crash", "with", "background", "it", "Write", "Read", "List", "files", "For", "each", "file", "If", "ends", "Move", "Create", "folder", "External", "from", "Execute", "key", "pressed", "item", "Make", "Increase", "by", "Space", "Entity", "of", "Download", "joined", "square", "root", "power", "random", "between", "size", "project", "named", "version", "target", "standalone", "executable"];
             for kw in &keywords {
                 if s.eq_ignore_ascii_case(kw) {
                     final_s = kw.to_string();

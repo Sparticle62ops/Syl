@@ -64,6 +64,14 @@ pub enum Statement {
     CreateEntity { entity_type: String, name: String },
     SetField { field_name: String, entity_instance: String, value: Expr },
     Download { url: Expr, target: String },
+    ListWords { source: Expr, identifier: String },
 
     Enforce { name: String, condition: String, crash_msg: String },
+}
+
+#[derive(Debug, Clone)]
+pub struct ProjectMetadata {
+    pub name: String,
+    pub version: String,
+    pub target: String,
 }

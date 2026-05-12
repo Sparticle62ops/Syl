@@ -313,6 +313,13 @@ int ends_with(char* str, char* suffix) {
                 self.push_line(&format!("{{ char cmd[1024]; sprintf(cmd, \"curl -s %s -o tmp_download.txt\", {}); system(cmd); }}", url_str));
                 self.push_line(&format!("// [ HELIX BORROWED ] {} tagged as temporary until verification.", target));
             }
+            Statement::ListWords { source, identifier } => {
+                let src_str = self.gen_expr(source);
+                self.push_line(&format!("String* {} = malloc(1024 * sizeof(String));", identifier));
+                self.push_line(&format!("int {}_count = 0;", identifier));
+                self.push_line(&format!("{{ char* s = strdup({}); char* tok = strtok(s, \" \t\\n\");", src_str));
+                self.push_line(&format!("  while(tok) {{ {}[{}_count++] = strdup(tok); tok = strtok(NULL, \" \t\\n\"); }} }}", identifier, identifier));
+            }
             Statement::Increase { name, amount } => {
                 let amt_str = self.gen_expr(amount);
                 self.push_line(&format!("{} += {};", name, amt_str));

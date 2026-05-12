@@ -9,11 +9,22 @@ pub struct Parser<'a> {
     pos: usize,
     base_path: &'a Path,
     imported_modules: &'a mut HashSet<String>,
+    pub metadata: ProjectMetadata,
 }
 
 impl<'a> Parser<'a> {
     pub fn new(tokens: Vec<Token>, base_path: &'a Path, imported_modules: &'a mut HashSet<String>) -> Self {
-        Parser { tokens, pos: 0, base_path, imported_modules }
+        Parser { 
+            tokens, 
+            pos: 0, 
+            base_path, 
+            imported_modules,
+            metadata: ProjectMetadata {
+                name: "Untitled".to_string(),
+                version: "0.1.0".to_string(),
+                target: "executable".to_string(),
+            }
+        }
     }
 
     fn peek(&self) -> Option<&Token> {
@@ -48,6 +59,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse(&mut self) -> Result<Vec<Statement>, String> {
+        self.parse_metadata()?;
         let mut statements = Vec::new();
         while let Some(tok) = self.peek() {
             if *tok == Token::EOF || *tok == Token::Dedent {
@@ -56,6 +68,49 @@ impl<'a> Parser<'a> {
             statements.push(self.parse_statement()?);
         }
         Ok(statements)
+    }
+
+    fn parse_metadata(&mut self) -> Result<(), String> {
+        while let Some(Token::Word(w)) = self.peek() {
+            if w == "The" {
+                self.advance();
+                match self.peek() {
+                    Some(Token::Word(w2)) if w2 == "project" => {
+                        self.advance();
+                        self.expect_word("is")?;
+                        self.expect_word("named")?;
+                        if let Some(Token::StringLit(name)) = self.advance() {
+                            self.metadata.name = name.clone();
+                        }
+                        self.expect_punct('.')?;
+                    }
+                    Some(Token::Word(w2)) if w2 == "version" => {
+                        self.advance();
+                        self.expect_word("is")?;
+                        if let Some(Token::StringLit(ver)) = self.advance() {
+                            self.metadata.version = ver.clone();
+                        }
+                        self.expect_punct('.')?;
+                    }
+                    Some(Token::Word(w2)) if w2 == "target" => {
+                        self.advance();
+                        self.expect_word("is")?;
+                        self.expect_word("a")?;
+                        self.expect_word("standalone")?;
+                        self.expect_word("executable")?;
+                        self.metadata.target = "executable".to_string();
+                        self.expect_punct('.')?;
+                    }
+                    _ => {
+                        self.pos -= 1; // Backtrack "The"
+                        break;
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+        Ok(())
     }
 
     fn parse_block(&mut self) -> Result<Vec<Statement>, String> {
@@ -332,13 +387,27 @@ impl<'a> Parser<'a> {
 
     fn parse_list(&mut self) -> Result<Statement, String> {
         self.expect_word("List")?;
-        self.expect_word("files")?;
-        self.expect_word("in")?;
-        let path = self.parse_expr()?;
-        self.expect_word("as")?;
-        let identifier = self.expect_ident()?;
-        self.expect_punct('.')?;
-        Ok(Statement::List { path, identifier })
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "words" {
+                self.advance();
+                self.expect_word("in")?;
+                let source = self.parse_expr()?;
+                self.expect_word("as")?;
+                let identifier = self.expect_ident()?;
+                self.expect_punct('.')?;
+                return Ok(Statement::ListWords { source, identifier });
+            }
+            if w == "files" {
+                self.advance();
+                self.expect_word("in")?;
+                let path = self.parse_expr()?;
+                self.expect_word("as")?;
+                let identifier = self.expect_ident()?;
+                self.expect_punct('.')?;
+                return Ok(Statement::List { path, identifier });
+            }
+        }
+        Err(self.error_msg("I was expecting 'words' or 'files' after 'List'."))
     }
 
     fn parse_move(&mut self) -> Result<Statement, String> {

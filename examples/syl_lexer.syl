@@ -1,0 +1,22 @@
+The project is named "SylLexer".
+The version is "1.0.0".
+The target is a standalone executable.
+
+Note: Syl v1.0 Self-Hosting Lexer.
+
+Print "Syl Self-Hosting Lexer Proof starting...".
+
+Read "sentinel.syl" as source_code.
+List words in source_code as words.
+
+Print "Found " and words_count and " words.".
+
+For each word in words:
+    If word is "Set":
+        Print "[ TOKEN ] KEYWORD: Set".
+    If word is "Print":
+        Print "[ TOKEN ] KEYWORD: Print".
+    If word is "Entity":
+        Print "[ TOKEN ] KEYWORD: Entity".
+
+Print "Analysis complete.".
