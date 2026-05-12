@@ -28,8 +28,8 @@ fn main() {
         std::process::exit(1);
     });
 
-    println!("Syl Compiler [v1.0.0-GOLDEN]");
-    println!("[ HELIX v1.0 ] PARSING: {}", filename);
+    println!("Syl Compiler [v1.1.0-audited]");
+    println!("[ HELIX v1.1 ] PARSING: {}", filename);
 
     let file_path = Path::new(filename);
     let base_path = file_path.parent().unwrap_or(Path::new(""));
@@ -60,14 +60,14 @@ fn main() {
 
     let hlx_filename = format!("{}.hlx", file_stem);
     fs::write(&hlx_filename, hlx_content).unwrap_or_else(|_| {
-        eprintln!("[ HELIX v1.0 ] ERROR: Failed to write {}", hlx_filename);
+        eprintln!("[ HELIX v1.1 ] ERROR: Failed to write {}", hlx_filename);
     });
-    println!("[ HELIX v1.0 ] GENERATED: {}", hlx_filename);
+    println!("[ HELIX v1.1 ] GENERATED: {}", hlx_filename);
 
     let final_is_standalone = is_standalone || parser.metadata.target == "executable";
 
     if final_is_standalone {
-        println!("[ HELIX v1.0 ] NATIVE: Initializing Cranelift Native Pipeline...");
+        println!("[ HELIX v1.1 ] NATIVE: Initializing Cranelift Native Pipeline...");
         let mut native = NativeEmitter::new();
         native.compile_ast(&ast);
         let obj_data = native.finish();
@@ -100,12 +100,12 @@ fn main() {
 
     let c_filename = format!("{}.c", file_stem);
     fs::write(&c_filename, c_final).unwrap_or_else(|_| {
-        eprintln!("[ HELIX v1.0 ] ERROR: Failed to write {}", c_filename);
+        eprintln!("[ HELIX v1.1 ] ERROR: Failed to write {}", c_filename);
     });
-    println!("[ HELIX v1.0 ] TRANSPILING: {}", c_filename);
+    println!("[ HELIX v1.1 ] TRANSPILING: {}", c_filename);
 
     if command == "run" {
-        println!("[ HELIX v1.0 ] BUILDING: Compiling with TCC...");
+        println!("[ HELIX v1.1 ] BUILDING: Compiling with TCC...");
         let tcc_path = "tools/tcc/tcc/tcc.exe";
         let exe_filename = format!("{}.exe", file_stem);
         
@@ -115,16 +115,16 @@ fn main() {
 
         if let Ok(s) = status {
             if s.success() {
-                println!("[ HELIX v1.0 ] SUCCESS: Binary \"{}\" generated.", exe_filename);
-                println!("[ HELIX v1.0 ] RUNNING: Executing {}...", exe_filename);
+                println!("[ HELIX v1.1 ] SUCCESS: Binary \"{}\" generated.", exe_filename);
+                println!("[ HELIX v1.1 ] RUNNING: Executing {}...", exe_filename);
                 let _ = std::process::Command::new(format!("./{}", exe_filename)).status();
             } else {
-                eprintln!("[ HELIX v1.0 ] ERROR: TCC compilation failed.");
+                eprintln!("[ HELIX v1.1 ] ERROR: TCC compilation failed.");
             }
         } else {
-            eprintln!("[ HELIX v1.0 ] ERROR: Could not find TCC at {}.", tcc_path);
+            eprintln!("[ HELIX v1.1 ] ERROR: Could not find TCC at {}.", tcc_path);
         }
     } else {
-        println!("[ HELIX v1.0 ] SUCCESS: Production binary ready at ./{}", file_stem);
+        println!("[ HELIX v1.1 ] SUCCESS: Production binary ready at ./{}", file_stem);
     }
 }

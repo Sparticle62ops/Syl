@@ -131,6 +131,8 @@ impl<'a> Parser<'a> {
         match first {
             Some(Token::Word(w)) => {
                 match w.as_str() {
+                    // Skip decorative words at statement level
+                    "Please" | "Now" | "The" | "the" | "A" | "a" | "An" | "an" => { self.advance(); return self.parse_statement(); }
                     "Bring" => self.parse_bring(),
                     "Define" => self.parse_define(),
                     "Enforce" => self.parse_enforce(),
@@ -159,10 +161,10 @@ impl<'a> Parser<'a> {
                     "End" => self.parse_end_drawing(),
                     "Make" => self.parse_make_item(),
                     "Increase" => self.parse_increase(),
-                    _ => Err(format!("Unknown statement starting with '{}'", w)),
+                    _ => Err(self.error_msg(&format!("I don't understand the statement starting with '{}'. Check your spelling or keyword.", w))),
                 }
             }
-            other => Err(format!("Expected statement, got {:?}", other)),
+            other => Err(self.error_msg(&format!("Expected a statement, but found {:?}.", other))),
         }
     }
 
@@ -257,6 +259,7 @@ impl<'a> Parser<'a> {
         self.expect_word("Set")?;
         let left = self.parse_expr()?;
         
+        // Conversational error: missing 'to'
         if let Some(Token::Word(w)) = self.peek() {
             if w != "to" {
                 if let Expr::Identifier(id) = &left {
@@ -266,6 +269,21 @@ impl<'a> Parser<'a> {
         }
         
         self.expect_word("to")?;
+        
+        // Check for GetItem pattern: "Set X to item N in list."
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "item" {
+                if let Expr::Identifier(name) = left {
+                    self.advance();
+                    let index = self.parse_expr()?;
+                    self.expect_word("in")?;
+                    let list = self.expect_ident()?;
+                    self.expect_punct('.')?;
+                    return Ok(Statement::GetItem { identifier: name, index, list });
+                }
+            }
+        }
+        
         let value = self.parse_expr()?;
         self.expect_punct('.')?;
         
@@ -310,29 +328,8 @@ impl<'a> Parser<'a> {
         Ok(Statement::Enforce { name, condition: "not empty".into(), crash_msg })
     }
 
-    fn parse_set(&mut self) -> Result<Statement, String> {
-        self.expect_word("Set")?;
-        if let Some(Token::Word(w)) = self.peek() {
-            if w == "the" {
-                self.advance();
-            }
-        }
-        let name = self.expect_ident()?;
-        self.expect_word("to")?;
-        if let Some(Token::Word(w)) = self.peek() {
-            if w == "item" {
-                self.advance();
-                let index = self.parse_expr()?;
-                self.expect_word("in")?;
-                let list = self.expect_ident()?;
-                self.expect_punct('.')?;
-                return Ok(Statement::GetItem { identifier: name, index, list });
-            }
-        }
-        let value = self.parse_expr()?;
-        self.expect_punct('.')?;
-        Ok(Statement::Assign { name, value })
-    }
+
+
 
     // Print the message. OR Print "Hello".
     fn parse_print(&mut self) -> Result<Statement, String> {
@@ -776,7 +773,8 @@ impl<'a> Parser<'a> {
             Some(Token::Number(n)) => Ok(Expr::Number(n)),
             Some(Token::Word(w)) => {
                 match w.as_str() {
-                    "the" => {
+                    // Handle capitalized articles that weren't stripped by lexer
+                    "The" | "the" => {
                         if let Some(Token::Word(w2)) = self.peek() {
                             match w2.as_str() {
                                 "square" => {
@@ -792,11 +790,15 @@ impl<'a> Parser<'a> {
                                     let val = self.parse_expr()?;
                                     return Ok(Expr::FileSize { path: Box::new(val) });
                                 }
-                                _ => {}
+                                _ => {
+                                    // "the" is decorative, skip it
+                                    return self.parse_primary_expr();
+                                }
                             }
                         }
+                        return self.parse_primary_expr();
                     }
-                    "a" => {
+                    "A" | "a" | "An" | "an" => {
                         if let Some(Token::Word(w2)) = self.peek() {
                             if w2 == "random" {
                                 self.advance();
@@ -808,6 +810,8 @@ impl<'a> Parser<'a> {
                                 return Ok(Expr::Random { min: Box::new(min), max: Box::new(max) });
                             }
                         }
+                        // "a"/"an" are decorative, skip
+                        return self.parse_primary_expr();
                     }
                     _ => {}
                 }

@@ -132,7 +132,9 @@ impl Lexer {
                 return self.next_token();
             }
 
-            let fillers = ["the", "a", "an", "please", "now"];
+            // The lexer keeps "The", "A", etc., as tokens. The parser contextually ignores them.
+            // "Please" passes through and is handled by parse_statement.
+            let fillers = ["please", "now"];
             for f in &fillers {
                 if s.eq_ignore_ascii_case(f) {
                     return self.next_token();

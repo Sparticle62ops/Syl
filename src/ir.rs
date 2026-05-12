@@ -167,6 +167,82 @@ impl IRGenerator {
                 self.emit('I', 'O', reg, 0);
                 self.generate(body);
             }
+            Statement::External { .. } => {
+                self.emit('E', 'O', 0, 0);
+            }
+            Statement::Execute { .. } => {
+                self.emit('E', 'O', 0, 0);
+            }
+            Statement::CreateList { name, items } => {
+                let reg = self.get_reg(name);
+                self.emit('A', 'O', reg, 0);
+                for item in items {
+                    self.gen_expr(item, reg);
+                }
+            }
+            Statement::AddToList { list_name, item } => {
+                let reg = self.get_reg(list_name);
+                self.gen_expr(item, reg);
+            }
+            Statement::CallAction { name, args } => {
+                let reg = self.get_reg(name);
+                for (i, arg) in args.iter().enumerate() {
+                    self.gen_expr(arg, i);
+                }
+                self.emit('E', 'O', reg, 0);
+            }
+            Statement::WhileNot { body, .. } => {
+                self.emit('R', 'O', 0, 0);
+                self.generate(body);
+            }
+            Statement::IfKeyPressed { key, body } => {
+                let reg = self.get_reg(key);
+                self.emit('I', 'O', reg, 0);
+                self.generate(body);
+            }
+            Statement::GetItem { identifier, list, index } => {
+                let list_reg = self.get_reg(list);
+                let id_reg = self.get_reg(identifier);
+                self.gen_expr(index, id_reg);
+                self.emit('I', 'O', list_reg, id_reg);
+            }
+            Statement::SetItem { list, index, value } => {
+                let list_reg = self.get_reg(list);
+                self.gen_expr(index, 0);
+                self.gen_expr(value, 1);
+                self.emit('I', 'O', list_reg, 0);
+            }
+            Statement::Increase { name, amount } => {
+                let reg = self.get_reg(name);
+                self.gen_expr(amount, reg);
+                self.emit('A', 'O', reg, reg);
+            }
+            Statement::DefineEntity { name, .. } => {
+                let reg = self.get_reg(name);
+                self.emit('D', 'O', reg, 0);
+            }
+            Statement::CreateEntity { name, .. } => {
+                let reg = self.get_reg(name);
+                self.emit('A', 'O', reg, 0);
+            }
+            Statement::SetField { entity_instance, .. } => {
+                let reg = self.get_reg(entity_instance);
+                self.emit('A', 'O', reg, 0);
+            }
+            Statement::Download { target, url } => {
+                self.gen_expr(url, 0);
+                let reg = self.get_reg(target);
+                self.emit('A', 'O', 0, reg);
+            }
+            Statement::ListWords { identifier, source } => {
+                self.gen_expr(source, 0);
+                let reg = self.get_reg(identifier);
+                self.emit('L', 'O', 0, reg);
+            }
+            _ => {
+                // Remaining statement types emit a no-op
+                self.emit('N', 'O', 0, 0);
+            }
         }
     }
 
@@ -183,6 +259,33 @@ impl IRGenerator {
                 self.emit('A', 'O', 0, target_reg);
             }
             Expr::Number(_) => {
+                self.emit('A', 'O', 0, target_reg);
+            }
+            Expr::GetField { entity_instance, .. } => {
+                let reg = self.get_reg(entity_instance);
+                self.emit('A', 'O', reg, target_reg);
+            }
+            Expr::Join { left, right } => {
+                self.gen_expr(left, target_reg);
+                self.gen_expr(right, target_reg);
+                self.emit('J', 'O', target_reg, target_reg);
+            }
+            Expr::Sqrt { value } => {
+                self.gen_expr(value, target_reg);
+                self.emit('M', 'O', target_reg, 0);
+            }
+            Expr::Pow { base, exponent } => {
+                self.gen_expr(base, target_reg);
+                self.gen_expr(exponent, target_reg);
+                self.emit('M', 'O', target_reg, target_reg);
+            }
+            Expr::Random { min, max } => {
+                self.gen_expr(min, target_reg);
+                self.gen_expr(max, target_reg);
+                self.emit('M', 'O', target_reg, 0);
+            }
+            Expr::FileSize { path } => {
+                self.gen_expr(path, target_reg);
                 self.emit('A', 'O', 0, target_reg);
             }
         }

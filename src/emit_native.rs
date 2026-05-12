@@ -1,7 +1,7 @@
 use cranelift::prelude::*;
 use cranelift_module::{Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
-use crate::ast::Statement;
+use crate::ast::{Statement, Expr};
 use std::process::Command;
 
 pub struct NativeEmitter {
@@ -30,7 +30,7 @@ impl NativeEmitter {
             sig.params.push(AbiParam::new(types::I64)); // title ptr
             c_sig = "void InitWindow(int width, int height, const char* title)".to_string();
         } else if action == "WindowShouldClose" {
-            sig.returns.push(AbiParam::new(types::B1)); // bool
+            sig.returns.push(AbiParam::new(types::I8)); // bool
             c_sig = "bool WindowShouldClose(void)".to_string();
         } else if action == "DrawText" {
             sig.params.push(AbiParam::new(types::I64)); // text ptr
