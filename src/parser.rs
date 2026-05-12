@@ -84,6 +84,7 @@ impl<'a> Parser<'a> {
                     "Run" => self.parse_run(),
                     "Return" => self.parse_return(),
                     "Print" => self.parse_print(),
+                    "Download" => self.parse_download(),
                     "Give" => self.parse_give(),
                     "Write" => self.parse_write(),
                     "Read" => self.parse_read(),
@@ -157,35 +158,79 @@ impl<'a> Parser<'a> {
         Ok(Statement::Import { filename, alias, body })
     }
 
-    // Define an action called process_login taking username and password:
     fn parse_define(&mut self) -> Result<Statement, String> {
         self.expect_word("Define")?;
-        self.expect_word("an")?;
-        self.expect_word("action")?;
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "an" || w == "a" {
+                self.advance();
+            }
+        }
+        
+        match self.peek() {
+            Some(Token::Word(w)) if w == "Entity" => self.parse_define_entity(),
+            _ => self.parse_define_action(),
+        }
+    }
+
+    fn parse_define_entity(&mut self) -> Result<Statement, String> {
+        self.expect_word("Entity")?;
         self.expect_word("called")?;
         let name = self.expect_ident()?;
+        self.expect_punct(':')?;
         
-        let mut args = Vec::new();
+        match self.advance() {
+            Some(Token::Indent) => {}
+            other => return Err(self.error_msg(&format!("I understood you are defining the Entity '{}', but I was expecting a block of fields (Indent), got {:?}", name, other))),
+        }
+        
+        let mut fields = Vec::new();
+        while let Some(tok) = self.peek() {
+            if *tok == Token::Dedent { break; }
+            self.expect_word("Set")?;
+            let field_name = self.expect_ident()?;
+            self.expect_word("to")?;
+            let value = self.parse_expr()?;
+            self.expect_punct('.')?;
+            fields.push((field_name, value));
+        }
+        
+        self.advance(); // consume Dedent
+        Ok(Statement::DefineEntity { name, fields })
+    }
+
+    fn parse_set(&mut self) -> Result<Statement, String> {
+        self.expect_word("Set")?;
+        let left = self.parse_expr()?;
+        
         if let Some(Token::Word(w)) = self.peek() {
-            if w == "taking" {
-                self.advance();
-                args.push(self.expect_ident()?);
-                while let Some(Token::Word(w)) = self.peek() {
-                    if w == "and" {
-                        self.advance();
-                        args.push(self.expect_ident()?);
-                    } else {
-                        break;
-                    }
+            if w != "to" {
+                if let Expr::Identifier(id) = &left {
+                    return Err(self.error_msg(&format!("I understood you are trying to Set '{}', but I was expecting the word 'to' followed by a value.", id)));
                 }
             }
         }
-        self.expect_punct(':')?;
-        let body = self.parse_block()?;
-        Ok(Statement::DefineAction { name, args, body })
+        
+        self.expect_word("to")?;
+        let value = self.parse_expr()?;
+        self.expect_punct('.')?;
+        
+        match left {
+            Expr::Identifier(name) => Ok(Statement::Assign { name, value }),
+            Expr::GetField { field_name, entity_instance } => Ok(Statement::SetField { field_name, entity_instance, value }),
+            other => Err(self.error_msg(&format!("I understood you are trying to Set something, but {:?} is not something I can assign a value to.", other))),
+        }
     }
 
-    // Enforce that the username is not empty, or crash with "Missing username".
+    fn parse_download(&mut self) -> Result<Statement, String> {
+        self.expect_word("Download")?;
+        self.expect_word("from")?;
+        let url = self.parse_expr()?;
+        self.expect_word("as")?;
+        let target = self.expect_ident()?;
+        self.expect_punct('.')?;
+        Ok(Statement::Download { url, target })
+    }
+
     fn parse_enforce(&mut self) -> Result<Statement, String> {
         self.expect_word("Enforce")?;
         self.expect_word("that")?;
@@ -308,30 +353,64 @@ impl<'a> Parser<'a> {
     fn parse_create(&mut self) -> Result<Statement, String> {
         self.expect_word("Create")?;
         if let Some(Token::Word(w)) = self.peek() {
-            if w == "folder" {
+            if w == "an" || w == "a" {
                 self.advance();
-                let path = self.parse_expr()?;
-                self.expect_punct('.')?;
-                return Ok(Statement::CreateFolder { path });
+            }
+        }
+
+        let type_name = self.expect_ident()?;
+        if type_name == "folder" {
+            let path = self.parse_expr()?;
+            self.expect_punct('.')?;
+            return Ok(Statement::CreateFolder { path });
+        } else if type_name == "List" {
+            self.expect_word("called")?;
+            let name = self.expect_ident()?;
+            self.expect_word("containing")?;
+            let mut items = Vec::new();
+            items.push(self.parse_expr()?);
+            while let Some(Token::Word(w)) = self.peek() {
+                if w == "and" || w == "," {
+                    self.advance();
+                    items.push(self.parse_expr()?);
+                } else {
+                    break;
+                }
+            }
+            self.expect_punct('.')?;
+            return Ok(Statement::CreateList { name, items });
+        } else {
+            self.expect_word("called")?;
+            let name = self.expect_ident()?;
+            self.expect_punct('.')?;
+            return Ok(Statement::CreateEntity { entity_type: type_name, name });
+        }
+    }
+
+    fn parse_define_action(&mut self) -> Result<Statement, String> {
+        self.expect_word("action")?;
+        self.expect_word("called")?;
+        let name = self.expect_ident()?;
+        
+        let mut args = Vec::new();
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "taking" {
+                self.advance();
+                args.push(self.expect_ident()?);
+                while let Some(Token::Word(w_and)) = self.peek() {
+                    if w_and == "and" {
+                        self.advance();
+                        args.push(self.expect_ident()?);
+                    } else {
+                        break;
+                    }
+                }
             }
         }
         
-        self.expect_word("List")?;
-        self.expect_word("called")?;
-        let name = self.expect_ident()?;
-        self.expect_word("containing")?;
-        let mut items = Vec::new();
-        items.push(self.parse_expr()?);
-        while let Some(Token::Word(w)) = self.peek() {
-            if w == "and" || w == "," {
-                self.advance();
-                items.push(self.parse_expr()?);
-            } else {
-                break;
-            }
-        }
-        self.expect_punct('.')?;
-        Ok(Statement::CreateList { name, items })
+        self.expect_punct(':')?;
+        let body = self.parse_block()?;
+        Ok(Statement::DefineAction { name, args, body })
     }
 
     fn parse_add_to_list(&mut self) -> Result<Statement, String> {
@@ -575,6 +654,25 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_primary_expr()?;
+        
+        while let Some(Token::Word(w)) = self.peek() {
+            if w == "of" {
+                self.advance();
+                let instance = self.expect_ident()?;
+                if let Expr::Identifier(field) = left {
+                    left = Expr::GetField { field_name: field, entity_instance: instance };
+                } else {
+                    return Err(self.error_msg("I understood you are using 'of', but I was expecting a property name before it."));
+                }
+            } else {
+                break;
+            }
+        }
+        Ok(left)
+    }
+
+    fn parse_primary_expr(&mut self) -> Result<Expr, String> {
         let tok = self.advance().cloned();
         match tok {
             Some(Token::StringLit(s)) => Ok(Expr::StringLit(s)),
@@ -587,12 +685,6 @@ impl<'a> Parser<'a> {
                     if next_w == "taking" {
                         is_call = true;
                         self.advance();
-                        
-                        if let Some(Token::Word(w_the)) = self.peek() {
-                            if w_the == "the" {
-                                self.advance();
-                            }
-                        }
                         
                         args.push(self.parse_expr()?);
                         
@@ -613,7 +705,11 @@ impl<'a> Parser<'a> {
                     Ok(Expr::Identifier(w))
                 }
             }
-            _ => Err("Invalid expression".into()),
+            other => Err(self.error_msg(&format!("I was expecting an expression here, but I found {:?}", other))),
         }
+    }
+
+    fn error_msg(&self, msg: &str) -> String {
+        format!("\n[ SYL GRAMMAR ] {}\n", msg)
     }
 }

@@ -4,6 +4,7 @@ pub enum Expr {
     Number(i32),
     Identifier(String),
     Call { action: String, args: Vec<Expr> },
+    GetField { field_name: String, entity_instance: String },
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +54,11 @@ pub enum Statement {
     Listen { port: Expr },
     RunBackground { action_call: Expr },
     Wait { action_call: Expr },
+
+    DefineEntity { name: String, fields: Vec<(String, Expr)> },
+    CreateEntity { entity_type: String, name: String },
+    SetField { field_name: String, entity_instance: String, value: Expr },
+    Download { url: Expr, target: String },
 
     Enforce { name: String, condition: String, crash_msg: String },
 }

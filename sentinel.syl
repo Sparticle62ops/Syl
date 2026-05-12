@@ -1,20 +1,19 @@
 Bring in "sys" as sys.
+Bring in "net" as net.
 
-Note: The Sentinel - A professional file organizer.
+Note: The Sentinel v0.9.5 - Entity-driven file management.
 
-Print "Running Sentinel...".
-Create folder "Images".
-Create folder "Documents".
+Define an Entity called ArchiveJob:
+    Set file_path to "".
+    Set priority to "Normal".
+
+Define an action called process_job taking task:
+    Print "Processing " and file_path of task.
+    Move file_path of task to "Archive/".
 
 List files in "." as files.
-
-For each file in files:
-    If file ends with ".jpg":
-        Print "Found image, moving...".
-        Move file to "Images/file".
-    
-    If file ends with ".pdf":
-        Print "Found document, moving...".
-        Move file to "Documents/file".
-
-Print "Organization complete.".
+For each f in files:
+    If f ends with ".zip":
+        Create an ArchiveJob called current_task.
+        Set file_path of current_task to f.
+        Run process_job taking current_task in the background.

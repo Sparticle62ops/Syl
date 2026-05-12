@@ -286,6 +286,32 @@ int ends_with(char* str, char* suffix) {
                 self.indent_level -= 1;
                 self.push_line("}");
             }
+            Statement::DefineEntity { name, fields } => {
+                self.push_line(&format!("typedef struct {{"));
+                self.indent_level += 1;
+                for (f_name, f_val) in fields {
+                    if let Expr::Number(_) = f_val {
+                        self.push_line(&format!("int {};", f_name));
+                    } else {
+                        self.push_line(&format!("String {};", f_name));
+                    }
+                }
+                self.indent_level -= 1;
+                self.push_line(&format!("}} {};", name));
+            }
+            Statement::CreateEntity { entity_type, name } => {
+                self.push_line(&format!("{} {} = {{0}};", entity_type, name));
+            }
+            Statement::SetField { field_name, entity_instance, value } => {
+                let val_str = self.gen_expr(value);
+                self.push_line(&format!("{}.{} = {};", entity_instance, field_name, val_str));
+            }
+            Statement::Download { url, target } => {
+                let url_str = self.gen_expr(url);
+                self.push_line(&format!("String {} = \"\"; // Download target", target));
+                self.push_line(&format!("{{ char cmd[1024]; sprintf(cmd, \"curl -s %s -o tmp_download.txt\", {}); system(cmd); }}", url_str));
+                self.push_line(&format!("// [ HELIX BORROWED ] {} tagged as temporary until verification.", target));
+            }
             Statement::Increase { name, amount } => {
                 let amt_str = self.gen_expr(amount);
                 self.push_line(&format!("{} += {};", name, amt_str));
@@ -309,6 +335,9 @@ int ends_with(char* str, char* suffix) {
                 // Transform action like `auth.get_role` into `auth_get_role`
                 let c_action = action.replace(".", "_");
                 format!("{}({})", c_action, args_str)
+            }
+            Expr::GetField { field_name, entity_instance } => {
+                format!("{}.{}", entity_instance, field_name)
             }
         }
     }
