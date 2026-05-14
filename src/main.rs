@@ -4,6 +4,7 @@ mod parser;
 mod ir;
 mod codegen;
 mod emit_native;
+mod runtime;
 
 use std::fs;
 use std::path::Path;
@@ -28,8 +29,8 @@ fn main() {
         std::process::exit(1);
     });
 
-    println!("Syl Compiler [v1.1.0-audited]");
-    println!("[ HELIX v1.1 ] PARSING: {}", filename);
+    println!("Syl Compiler [v1.2.5-arena]");
+    println!("[ HELIX v1.2 ] PARSING: {}", filename);
 
     let file_path = Path::new(filename);
     let base_path = file_path.parent().unwrap_or(Path::new(""));

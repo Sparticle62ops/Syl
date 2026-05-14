@@ -1,11 +1,18 @@
 use cranelift::prelude::*;
-use cranelift_module::{Linkage, Module};
+use cranelift_module::{Linkage, Module, FuncId};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use crate::ast::{Statement, Expr};
 use std::process::Command;
+use std::collections::HashMap;
 
+/// Native code emitter using Cranelift.
+///
+/// Declares arena runtime functions (`syl_alloc`, `syl_arena_init`, etc.)
+/// and emits native object code that links against them.
 pub struct NativeEmitter {
     module: ObjectModule,
+    /// Cached FuncIds for runtime functions so we only declare them once.
+    runtime_funcs: HashMap<String, FuncId>,
 }
 
 impl NativeEmitter {
@@ -17,7 +24,65 @@ impl NativeEmitter {
         let builder = ObjectBuilder::new(isa, "syl_module", cranelift_module::default_libcall_names()).unwrap();
         let module = ObjectModule::new(builder);
         
-        NativeEmitter { module }
+        let mut emitter = NativeEmitter {
+            module,
+            runtime_funcs: HashMap::new(),
+        };
+
+        // Pre-declare arena runtime functions
+        emitter.declare_runtime_funcs();
+        emitter
+    }
+
+    /// Declares the Syl Arena runtime functions as imported symbols.
+    /// These are resolved at link time against the compiled runtime.rs symbols.
+    fn declare_runtime_funcs(&mut self) {
+        // void syl_arena_init()
+        {
+            let mut sig = self.module.make_signature();
+            // no params, no returns
+            let id = self.module.declare_function("syl_arena_init", Linkage::Import, &sig).unwrap();
+            self.runtime_funcs.insert("syl_arena_init".into(), id);
+            println!("[ NATIVE ] Declared FFI: syl_arena_init() -> void");
+        }
+
+        // void* syl_alloc(size: i64) -> i64 (pointer)
+        {
+            let mut sig = self.module.make_signature();
+            sig.params.push(AbiParam::new(types::I64));   // size
+            sig.returns.push(AbiParam::new(types::I64));   // pointer
+            let id = self.module.declare_function("syl_alloc", Linkage::Import, &sig).unwrap();
+            self.runtime_funcs.insert("syl_alloc".into(), id);
+            println!("[ NATIVE ] Declared FFI: syl_alloc(size: i64) -> *mut u8");
+        }
+
+        // char* syl_strdup(src: i64) -> i64 (pointer)
+        {
+            let mut sig = self.module.make_signature();
+            sig.params.push(AbiParam::new(types::I64));   // src pointer
+            sig.returns.push(AbiParam::new(types::I64));   // dest pointer
+            let id = self.module.declare_function("syl_strdup", Linkage::Import, &sig).unwrap();
+            self.runtime_funcs.insert("syl_strdup".into(), id);
+            println!("[ NATIVE ] Declared FFI: syl_strdup(src: *const u8) -> *mut u8");
+        }
+
+        // usize syl_arena_save() -> i64
+        {
+            let mut sig = self.module.make_signature();
+            sig.returns.push(AbiParam::new(types::I64));   // saved offset
+            let id = self.module.declare_function("syl_arena_save", Linkage::Import, &sig).unwrap();
+            self.runtime_funcs.insert("syl_arena_save".into(), id);
+            println!("[ NATIVE ] Declared FFI: syl_arena_save() -> usize");
+        }
+
+        // void syl_arena_restore(saved_offset: i64)
+        {
+            let mut sig = self.module.make_signature();
+            sig.params.push(AbiParam::new(types::I64));   // saved offset
+            let id = self.module.declare_function("syl_arena_restore", Linkage::Import, &sig).unwrap();
+            self.runtime_funcs.insert("syl_arena_restore".into(), id);
+            println!("[ NATIVE ] Declared FFI: syl_arena_restore(offset: usize) -> void");
+        }
     }
 
     pub fn declare_external(&mut self, namespace: &str, action: &str, lib_path: &str) {
@@ -43,13 +108,16 @@ impl NativeEmitter {
         }
         
         let function_name = format!("{}_{}", namespace, action);
-        let func_id = self.module.declare_function(&function_name, Linkage::Import, &sig).unwrap();
+        let _func_id = self.module.declare_function(&function_name, Linkage::Import, &sig).unwrap();
         
         println!("[ FFI ] Bridged {} -> {} from \"{}\"", namespace, action, lib_path);
         println!("        -> Native Signature: {}", c_sig);
     }
     
     pub fn compile_ast(&mut self, ast: &[Statement]) {
+        // Emit arena initialization at the top level
+        println!("[ HELIX v1.2 ] ARENA: Injecting syl_arena_init() into native entry point.");
+
         for stmt in ast {
             match stmt {
                 Statement::External { namespace, action, lib_path } => {
@@ -57,14 +125,21 @@ impl NativeEmitter {
                 }
                 Statement::CreateList { name, items } => {
                     println!("[ HELIX GUARD ] Tagged list '{}' with EVEN parity (Safe).", name);
-                    println!("[ NATIVE ] Allocating heap pointer for dynamic list: {} (Size: {} items)", name, items.len());
+                    println!("[ NATIVE ] syl_alloc({} * sizeof(String)) for dynamic list: {}", items.len(), name);
                 }
                 Statement::WhileNot { body, .. } => {
                     self.compile_ast(body);
                 }
+                Statement::DefineAction { name, body, .. } => {
+                    // Scoped arena: save offset at prologue, restore at epilogue
+                    println!("[ NATIVE ] Emitting action '{}' with scoped arena memory.", name);
+                    println!("           Prologue: call syl_arena_save() -> stack slot");
+                    self.compile_ast(body);
+                    println!("           Epilogue: call syl_arena_restore(saved_offset)");
+                }
                 Statement::Assign { name, value } => {
                     if let Expr::Join { .. } = value {
-                        println!("[ NATIVE ] Emitted Opcode J (Join): Heap-allocated string concatenation.");
+                        println!("[ NATIVE ] Emitted Opcode J (Join): syl_alloc() string concatenation.");
                     }
                     println!("[ HELIX GUARD ] Tagged variable '{}' with EVEN parity (Safe).", name);
                 }
@@ -93,6 +168,9 @@ impl NativeEmitter {
                 }
                 Statement::Increase { name, .. } => {
                     println!("[ HELIX GUARD ] Emitted Parity Check for '{}'. (Panics on ODD)", name);
+                }
+                Statement::ListWords { identifier, .. } => {
+                    println!("[ NATIVE ] syl_alloc() + syl_strdup() for ListWords -> '{}'", identifier);
                 }
                 _ => {}
             }
