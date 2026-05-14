@@ -288,6 +288,18 @@ impl IRGenerator {
                 self.gen_expr(path, target_reg);
                 self.emit('A', 'O', 0, target_reg);
             }
+            Expr::BinaryOp { left, right, .. } => {
+                self.gen_expr(left, target_reg);
+                self.gen_expr(right, target_reg);
+                self.emit('M', 'O', target_reg, target_reg);
+            }
+            Expr::UnaryNeg { value } => {
+                self.gen_expr(value, target_reg);
+                self.emit('M', 'O', target_reg, 0);
+            }
+            Expr::DeltaTime | Expr::MouseX | Expr::MouseY => {
+                self.emit('E', 'O', 0, target_reg);
+            }
         }
     }
 
@@ -296,3 +308,4 @@ impl IRGenerator {
         self.instructions.push(ins);
     }
 }
+

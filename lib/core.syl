@@ -1,5 +1,42 @@
-Note: Syl Core Standard Library v1.3.
-Note: Provides fundamental utilities for all Syl programs.
+Note: ═══════════════════════════════════════════════════════════
+Note: Syl Core Standard Library v1.4
+Note: ═══════════════════════════════════════════════════════════
+Note: Provides fundamental runtime utilities for all Syl programs.
+Note: This module is automatically available as a virtual import.
+Note: ═══════════════════════════════════════════════════════════
+
+Note: ─── Identity ───────────────────────────────────────────
 
 Define an action called "version" that does:
-    Return "1.3.0".
+    Return "1.4.0".
+
+Define an action called "lang" that does:
+    Return "Syl".
+
+Note: ─── Type Conversion ──────────────────────────────────────
+
+Define an action called "to_string" taking value that does:
+    Return value joined with "".
+
+Note: ─── String Utilities ─────────────────────────────────────
+
+Define an action called "greet" taking name that does:
+    Set msg to "Hello, " joined with name.
+    Return msg.
+
+Note: ─── Assertions ───────────────────────────────────────────
+
+Define an action called "assert_not_empty" taking value and label that does:
+    Enforce value is not empty or crash with label.
+    Return value.
+
+Note: ─── Logging ──────────────────────────────────────────────
+
+Define an action called "log" taking message that does:
+    Print "[LOG] " joined with message.
+
+Define an action called "warn" taking message that does:
+    Print "[WARN] " joined with message.
+
+Define an action called "error" taking message that does:
+    Print "[ERROR] " joined with message.

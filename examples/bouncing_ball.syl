@@ -1,0 +1,31 @@
+The project is named "PhysicsSim".
+The version is "1.0.0".
+Bring in "ui" as ui.
+
+Set x to 200.
+Set y to 200.
+Set speed_x to 300.
+Set speed_y to 300.
+
+Please open a window with width 800 and height 600 titled "Syl Physics Engine".
+
+Repeat while the window is not closing:
+    Set dt to delta time.
+
+    Set x to (x + speed_x * dt).
+    Set y to (y + speed_y * dt).
+
+    If (x > 780):
+        Set speed_x to (speed_x * -1).
+    If (x < 20):
+        Set speed_x to (speed_x * -1).
+    If (y > 580):
+        Set speed_y to (speed_y * -1).
+    If (y < 20):
+        Set speed_y to (speed_y * -1).
+
+    Begin drawing.
+    Clear the background to "black".
+    Draw circle at x, y with radius 20 colored "red".
+    Draw text "Syl Physics" at position 10, 10.
+    End drawing.

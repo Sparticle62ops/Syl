@@ -1,6 +1,37 @@
-Note: Syl Networking Standard Library v1.3.
-Note: Provides HTTP and socket primitives.
+Note: ═══════════════════════════════════════════════════════════
+Note: Syl Networking Standard Library v1.4
+Note: ═══════════════════════════════════════════════════════════
+Note: Provides HTTP client and server primitives.
+Note: HTTP requests use system curl via shell bridge.
+Note: ═══════════════════════════════════════════════════════════
+
+Note: ─── HTTP Client ──────────────────────────────────────────
 
 Define an action called "fetch" taking url that does:
     Download url as response.
     Return response.
+
+Define an action called "get" taking url that does:
+    Download url as data.
+    Return data.
+
+Note: ─── HTTP Server ──────────────────────────────────────────
+
+Define an action called "listen" taking port that does:
+    Print "[ NET ] Listening on port " joined with port.
+
+Note: ─── URL Utilities ────────────────────────────────────────
+
+Define an action called "build_url" taking base and path that does:
+    Set url to base joined with path.
+    Return url.
+
+Note: ─── Status Codes ─────────────────────────────────────────
+Note: Common HTTP status codes for reference:
+Note:   200 = OK
+Note:   201 = Created
+Note:   400 = Bad Request
+Note:   401 = Unauthorized
+Note:   403 = Forbidden
+Note:   404 = Not Found
+Note:   500 = Internal Server Error

@@ -636,6 +636,23 @@ impl<'a> Parser<'a> {
 
     fn parse_if(&mut self) -> Result<Statement, String> {
         self.expect_word("If")?;
+
+        // v1.4: If (math_expr): — expression-based conditional
+        if let Some(Token::LParen) = self.peek() {
+            let condition = self.parse_expr()?;
+            self.expect_punct(':')?;
+            let then_branch = self.parse_block()?;
+            let mut else_branch = None;
+            if let Some(Token::Word(w)) = self.peek() {
+                if w == "Otherwise" {
+                    self.advance();
+                    self.expect_punct(':')?;
+                    else_branch = Some(self.parse_block()?);
+                }
+            }
+            return Ok(Statement::IfExpr { condition, then_branch, else_branch });
+        }
+
         let ident = self.expect_ident()?;
         if let Some(Token::Word(w)) = self.peek() {
             if w == "key" {
@@ -655,9 +672,23 @@ impl<'a> Parser<'a> {
                 self.expect_punct(':')?;
                 let body = self.parse_block()?;
                 return Ok(Statement::IfEndsWith { filename: ident, extension, body });
+            } else if w == "is" {
+                self.advance();
+                let val = self.parse_expr()?;
+                self.expect_punct(':')?;
+                let then_branch = self.parse_block()?;
+                let mut else_branch = None;
+                if let Some(Token::Word(ew)) = self.peek() {
+                    if ew == "Otherwise" {
+                        self.advance();
+                        self.expect_punct(':')?;
+                        else_branch = Some(self.parse_block()?);
+                    }
+                }
+                return Ok(Statement::IfElse { condition_var: ident, condition_val: val, then_branch, else_branch });
             }
         }
-        Err("Unsupported If format".into())
+        Err(self.error_msg("Unsupported If format. Use 'If (expr):' or 'If X is Y:' or 'If X key is pressed:'"))
     }
 
     fn parse_for_each(&mut self) -> Result<Statement, String> {
@@ -769,43 +800,48 @@ impl<'a> Parser<'a> {
     fn parse_expr(&mut self) -> Result<Expr, String> {
         let mut left = self.parse_primary_expr()?;
         
-        while let Some(Token::Word(w)) = self.peek() {
-            match w.as_str() {
-                "of" => {
-                    self.advance();
-                    let instance = self.expect_ident()?;
-                    if let Expr::Identifier(field) = left {
-                        left = Expr::GetField { field_name: field, entity_instance: instance };
-                    } else {
-                        return Err(self.error_msg("I understood you are using 'of', but I was expecting a property name before it."));
-                    }
-                }
-                "joined" => {
-                    self.advance();
-                    self.expect_word("with")?;
-                    let right = self.parse_expr()?;
-                    left = Expr::Join { left: Box::new(left), right: Box::new(right) };
-                }
-                "to" => {
-                    // Check for "to the power of"
-                    let saved_pos = self.pos;
-                    self.advance();
-                    if let Some(Token::Word(w2)) = self.peek() {
-                        if w2 == "the" {
+        while let Some(tok) = self.peek() {
+            match tok {
+                Token::Word(w) => {
+                    match w.as_str() {
+                        "of" => {
                             self.advance();
-                            if let Some(Token::Word(w3)) = self.peek() {
-                                if w3 == "power" {
-                                    self.advance();
-                                    self.expect_word("of")?;
-                                    let right = self.parse_expr()?;
-                                    left = Expr::Pow { base: Box::new(left), exponent: Box::new(right) };
-                                    continue;
-                                }
+                            let instance = self.expect_ident()?;
+                            if let Expr::Identifier(field) = left {
+                                left = Expr::GetField { field_name: field, entity_instance: instance };
+                            } else {
+                                return Err(self.error_msg("I understood you are using 'of', but I was expecting a property name before it."));
                             }
                         }
+                        "joined" => {
+                            self.advance();
+                            self.expect_word("with")?;
+                            let right = self.parse_expr()?;
+                            left = Expr::Join { left: Box::new(left), right: Box::new(right) };
+                        }
+                        "to" => {
+                            // Check for "to the power of"
+                            let saved_pos = self.pos;
+                            self.advance();
+                            if let Some(Token::Word(w2)) = self.peek() {
+                                if w2 == "the" || w2 == "The" {
+                                    self.advance();
+                                    if let Some(Token::Word(w3)) = self.peek() {
+                                        if w3 == "power" {
+                                            self.advance();
+                                            self.expect_word("of")?;
+                                            let right = self.parse_expr()?;
+                                            left = Expr::Pow { base: Box::new(left), exponent: Box::new(right) };
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+                            self.pos = saved_pos; // backtrack
+                            break;
+                        }
+                        _ => break,
                     }
-                    self.pos = saved_pos; // backtrack
-                    break;
                 }
                 _ => break,
             }
@@ -813,11 +849,128 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
+    // ── Math Block: Precedence-Climbing Expression Parser ──
+    // Entered when we see `(` — parses full math with +, -, *, /, <, >, ==, etc.
+    fn parse_math_expr(&mut self) -> Result<Expr, String> {
+        self.parse_math_comparison()
+    }
+
+    fn parse_math_comparison(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_math_additive()?;
+        loop {
+            let op = match self.peek() {
+                Some(Token::LessThan) => BinOp::Lt,
+                Some(Token::GreaterThan) => BinOp::Gt,
+                Some(Token::EqualEqual) => BinOp::Eq,
+                Some(Token::NotEqual) => BinOp::Neq,
+                Some(Token::LessEqual) => BinOp::Lte,
+                Some(Token::GreaterEqual) => BinOp::Gte,
+                _ => break,
+            };
+            self.advance();
+            let right = self.parse_math_additive()?;
+            left = Expr::BinaryOp { op, left: Box::new(left), right: Box::new(right) };
+        }
+        Ok(left)
+    }
+
+    fn parse_math_additive(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_math_multiplicative()?;
+        loop {
+            let op = match self.peek() {
+                Some(Token::Plus) => BinOp::Add,
+                Some(Token::Minus) => BinOp::Sub,
+                _ => break,
+            };
+            self.advance();
+            let right = self.parse_math_multiplicative()?;
+            left = Expr::BinaryOp { op, left: Box::new(left), right: Box::new(right) };
+        }
+        Ok(left)
+    }
+
+    fn parse_math_multiplicative(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_math_unary()?;
+        loop {
+            let op = match self.peek() {
+                Some(Token::Star) => BinOp::Mul,
+                Some(Token::Slash) => BinOp::Div,
+                Some(Token::Percent) => BinOp::Mod,
+                _ => break,
+            };
+            self.advance();
+            let right = self.parse_math_unary()?;
+            left = Expr::BinaryOp { op, left: Box::new(left), right: Box::new(right) };
+        }
+        Ok(left)
+    }
+
+    fn parse_math_unary(&mut self) -> Result<Expr, String> {
+        if let Some(Token::Minus) = self.peek() {
+            self.advance();
+            let val = self.parse_math_atom()?;
+            return Ok(Expr::UnaryNeg { value: Box::new(val) });
+        }
+        self.parse_math_atom()
+    }
+
+    fn parse_math_atom(&mut self) -> Result<Expr, String> {
+        match self.peek() {
+            Some(Token::LParen) => {
+                self.advance(); // consume (
+                let expr = self.parse_math_expr()?;
+                match self.advance() {
+                    Some(Token::RParen) => Ok(expr),
+                    other => Err(self.error_msg(&format!("Expected closing ')' in math block, found {:?}", other))),
+                }
+            }
+            Some(Token::Number(_)) => {
+                if let Some(Token::Number(n)) = self.advance().cloned() {
+                    Ok(Expr::Number(n))
+                } else {
+                    unreachable!()
+                }
+            }
+            Some(Token::Word(_)) => {
+                if let Some(Token::Word(w)) = self.advance().cloned() {
+                    // Check for function call inside math: `get_fib taking (n - 1)`
+                    if let Some(Token::Word(nw)) = self.peek() {
+                        if nw == "taking" {
+                            self.advance();
+                            let mut args = vec![self.parse_expr()?];
+                            while let Some(Token::Word(wa)) = self.peek() {
+                                if wa == "and" {
+                                    self.advance();
+                                    args.push(self.parse_expr()?);
+                                } else {
+                                    break;
+                                }
+                            }
+                            return Ok(Expr::Call { action: w, args });
+                        }
+                    }
+                    Ok(Expr::Identifier(w))
+                } else {
+                    unreachable!()
+                }
+            }
+            other => Err(self.error_msg(&format!("Unexpected token in math expression: {:?}", other))),
+        }
+    }
+
     fn parse_primary_expr(&mut self) -> Result<Expr, String> {
         let tok = self.advance().cloned();
         match tok {
             Some(Token::StringLit(s)) => Ok(Expr::StringLit(s)),
             Some(Token::Number(n)) => Ok(Expr::Number(n)),
+            // v1.4: Parenthesized math block
+            Some(Token::LParen) => {
+                let expr = self.parse_math_expr()?;
+                match self.advance() {
+                    Some(Token::RParen) => Ok(expr),
+                    other => Err(self.error_msg(&format!("Expected closing ')' in math block, found {:?}", other))),
+                }
+            }
             Some(Token::Word(w)) => {
                 match w.as_str() {
                     // Handle capitalized articles that weren't stripped by lexer
@@ -860,6 +1013,21 @@ impl<'a> Parser<'a> {
                         // "a"/"an" are decorative, skip
                         return self.parse_primary_expr();
                     }
+                    // v1.4: Raylib intrinsics
+                    "delta" => {
+                        self.expect_word("time")?;
+                        return Ok(Expr::DeltaTime);
+                    }
+                    "mouse" => {
+                        if let Some(Token::Word(axis)) = self.peek() {
+                            match axis.as_str() {
+                                "X" | "x" => { self.advance(); return Ok(Expr::MouseX); }
+                                "Y" | "y" => { self.advance(); return Ok(Expr::MouseY); }
+                                _ => {}
+                            }
+                        }
+                        return Ok(Expr::Identifier(w));
+                    }
                     _ => {}
                 }
 
@@ -898,3 +1066,4 @@ impl<'a> Parser<'a> {
         format!("\n[ SYL GRAMMAR ] {}\n", msg)
     }
 }
+

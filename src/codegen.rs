@@ -371,6 +371,36 @@ int ends_with(char* str, char* suffix) {
                 self.push_line(&format!("if ({} < 1 || {} > {}_count) {{ fprintf(stderr, \"[ HELIX FATAL ] Index out of bounds: %d\\n\", {}); exit(1); }}", idx_str, idx_str, list, idx_str));
                 self.push_line(&format!("{}[{}-1] = syl_strdup({});", list, idx_str, val_str));
             }
+            Statement::DrawRect { x, y, w, h, color } => {
+                let xs = self.gen_expr(x); let ys = self.gen_expr(y);
+                let ws = self.gen_expr(w); let hs = self.gen_expr(h);
+                let cs = self.gen_expr(color).to_uppercase();
+                self.push_line(&format!("DrawRectangle({}, {}, {}, {}, {});", xs, ys, ws, hs, cs));
+            }
+            Statement::DrawCircle { x, y, radius, color } => {
+                let xs = self.gen_expr(x); let ys = self.gen_expr(y);
+                let rs = self.gen_expr(radius);
+                let cs = self.gen_expr(color).to_uppercase();
+                self.push_line(&format!("DrawCircle({}, {}, {}, {});", xs, ys, rs, cs));
+            }
+            Statement::IfExpr { condition, then_branch, else_branch } => {
+                let cond = self.gen_expr(condition);
+                self.push_line(&format!("if ({}) {{", cond));
+                self.indent_level += 1;
+                for b in then_branch {
+                    self.gen_statement(b);
+                }
+                self.indent_level -= 1;
+                if let Some(elb) = else_branch {
+                    self.push_line("} else {");
+                    self.indent_level += 1;
+                    for b in elb {
+                        self.gen_statement(b);
+                    }
+                    self.indent_level -= 1;
+                }
+                self.push_line("}");
+            }
             _ => {
                 self.push_line("// Unimplemented statement transpilation");
             }
@@ -387,7 +417,6 @@ int ends_with(char* str, char* suffix) {
                     .map(|a| self.gen_expr(a))
                     .collect::<Vec<_>>()
                     .join(", ");
-                // Transform action like `auth.get_role` into `auth_get_role`
                 let c_action = action.replace(".", "_");
                 format!("{}({})", c_action, args_str)
             }
@@ -411,6 +440,33 @@ int ends_with(char* str, char* suffix) {
             Expr::FileSize { path } => {
                 format!("({{ struct stat st; stat({}, &st); (int)st.st_size; }})", self.gen_expr(path))
             }
+            // v1.4: Math block binary operations
+            Expr::BinaryOp { op, left, right } => {
+                let l = self.gen_expr(left);
+                let r = self.gen_expr(right);
+                let op_str = match op {
+                    BinOp::Add => "+",
+                    BinOp::Sub => "-",
+                    BinOp::Mul => "*",
+                    BinOp::Div => "/",
+                    BinOp::Mod => "%",
+                    BinOp::Lt  => "<",
+                    BinOp::Gt  => ">",
+                    BinOp::Eq  => "==",
+                    BinOp::Neq => "!=",
+                    BinOp::Lte => "<=",
+                    BinOp::Gte => ">=",
+                };
+                format!("({} {} {})", l, op_str, r)
+            }
+            Expr::UnaryNeg { value } => {
+                format!("(-{})", self.gen_expr(value))
+            }
+            // v1.4: Raylib intrinsics
+            Expr::DeltaTime => "GetFrameTime()".to_string(),
+            Expr::MouseX => "GetMouseX()".to_string(),
+            Expr::MouseY => "GetMouseY()".to_string(),
         }
     }
 }
+

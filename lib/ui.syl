@@ -1,8 +1,63 @@
-Note: Syl UI Standard Library v1.3.
-Note: Provides windowing and drawing via Raylib.
+Note: ═══════════════════════════════════════════════════════════
+Note: Syl UI Standard Library v1.4 (Raylib FFI Bridge)
+Note: ═══════════════════════════════════════════════════════════
+Note: Provides windowing, rendering, input, and audio primitives.
+Note: Backed by Raylib 5.x via TCC/Cranelift FFI.
+Note: ═══════════════════════════════════════════════════════════
 
-Define an action called "open_window" taking width and height and title that does:
-    Execute ui.InitWindow taking width and height and title.
+Note: ─── Window Management ────────────────────────────────────
 
-Define an action called "close_window" that does:
-    Execute ui.CloseWindow.
+External ui InitWindow from "raylib.dll".
+External ui CloseWindow from "raylib.dll".
+External ui WindowShouldClose from "raylib.dll".
+External ui SetTargetFPS from "raylib.dll".
+
+Note: ─── Drawing Control ──────────────────────────────────────
+
+External ui BeginDrawing from "raylib.dll".
+External ui EndDrawing from "raylib.dll".
+External ui ClearBackground from "raylib.dll".
+
+Note: ─── Shape Rendering ──────────────────────────────────────
+
+External ui DrawRectangle from "raylib.dll".
+External ui DrawRectangleRec from "raylib.dll".
+External ui DrawCircle from "raylib.dll".
+External ui DrawLine from "raylib.dll".
+
+Note: ─── Text Rendering ───────────────────────────────────────
+
+External ui DrawText from "raylib.dll".
+External ui DrawFPS from "raylib.dll".
+External ui MeasureText from "raylib.dll".
+
+Note: ─── Input: Keyboard ──────────────────────────────────────
+
+External ui IsKeyPressed from "raylib.dll".
+External ui IsKeyDown from "raylib.dll".
+External ui IsKeyReleased from "raylib.dll".
+
+Note: ─── Input: Mouse ─────────────────────────────────────────
+
+External ui GetMouseX from "raylib.dll".
+External ui GetMouseY from "raylib.dll".
+External ui IsMouseButtonPressed from "raylib.dll".
+External ui IsMouseButtonDown from "raylib.dll".
+
+Note: ─── Timing ───────────────────────────────────────────────
+
+External ui GetFrameTime from "raylib.dll".
+External ui GetTime from "raylib.dll".
+
+Note: ─── Audio ────────────────────────────────────────────────
+
+External ui InitAudioDevice from "raylib.dll".
+External ui CloseAudioDevice from "raylib.dll".
+External ui PlaySound from "raylib.dll".
+
+Note: ─── Color Constants (defined in Syl for convenience) ─────
+Note: Colors are passed as string identifiers and resolved
+Note: by the codegen to Raylib color structs:
+Note:   "black", "white", "red", "green", "blue",
+Note:   "yellow", "orange", "purple", "pink", "gray",
+Note:   "darkgray", "lightgray", "skyblue", "gold"

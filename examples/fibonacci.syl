@@ -1,0 +1,12 @@
+The project is named "Fibonacci".
+The version is "1.0.0".
+
+Define an action called get_fib taking n:
+    If (n < 2):
+        Return n.
+    Set a to get_fib taking (n - 1).
+    Set b to get_fib taking (n - 2).
+    Return (a + b).
+
+Set result to get_fib taking 30.
+Print result.

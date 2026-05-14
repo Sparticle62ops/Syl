@@ -10,6 +10,29 @@ pub enum Expr {
     Pow { base: Box<Expr>, exponent: Box<Expr> },
     Random { min: Box<Expr>, max: Box<Expr> },
     FileSize { path: Box<Expr> },
+    // v1.4: Math Block binary operations
+    BinaryOp { op: BinOp, left: Box<Expr>, right: Box<Expr> },
+    // v1.4: Unary negation
+    UnaryNeg { value: Box<Expr> },
+    // v1.4: Raylib intrinsics
+    DeltaTime,
+    MouseX,
+    MouseY,
+}
+
+#[derive(Debug, Clone)]
+pub enum BinOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Lt,
+    Gt,
+    Eq,
+    Neq,
+    Lte,
+    Gte,
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +90,13 @@ pub enum Statement {
     ListWords { source: Expr, identifier: String },
 
     Enforce { name: String, condition: String, crash_msg: String },
+
+    // v1.4: Advanced UI primitives
+    DrawRect { x: Expr, y: Expr, w: Expr, h: Expr, color: Expr },
+    DrawCircle { x: Expr, y: Expr, radius: Expr, color: Expr },
+
+    // v1.4: Expression-based conditional (supports math blocks)
+    IfExpr { condition: Expr, then_branch: Vec<Statement>, else_branch: Option<Vec<Statement>> },
 }
 
 #[derive(Debug, Clone)]

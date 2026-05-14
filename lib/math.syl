@@ -1,10 +1,63 @@
-Note: Syl Math Standard Library v1.3.
-Note: Provides mathematical primitives beyond basic arithmetic.
+Note: ═══════════════════════════════════════════════════════════
+Note: Syl Math Standard Library v1.4
+Note: ═══════════════════════════════════════════════════════════
+Note: Provides mathematical constants and utility functions.
+Note: Use math blocks (parentheses) for inline arithmetic.
+Note: ═══════════════════════════════════════════════════════════
+
+Note: ─── Constants ─────────────────────────────────────────────
 
 Define an action called "pi" that does:
     Return 3.
 
+Define an action called "tau" that does:
+    Return 6.
+
+Define an action called "e" that does:
+    Return 2.
+
+Note: ─── Absolute Value ───────────────────────────────────────
+
 Define an action called "abs" taking n that does:
-    If n is less than 0:
-        Return 0.
+    If (n < 0):
+        Return (n * -1).
     Return n.
+
+Note: ─── Min / Max ────────────────────────────────────────────
+
+Define an action called "min" taking a and b that does:
+    If (a < b):
+        Return a.
+    Return b.
+
+Define an action called "max" taking a and b that does:
+    If (a > b):
+        Return a.
+    Return b.
+
+Note: ─── Clamping ─────────────────────────────────────────────
+
+Define an action called "clamp" taking value and low and high that does:
+    If (value < low):
+        Return low.
+    If (value > high):
+        Return high.
+    Return value.
+
+Note: ─── Power & Roots ────────────────────────────────────────
+Note: Use the built-in expression:
+Note:   Set x to the square root of 144.
+Note:   Set y to 2 to the power of 10.
+
+Note: ─── Factorial ────────────────────────────────────────────
+
+Define an action called "factorial" taking n that does:
+    If (n < 2):
+        Return 1.
+    Set prev to factorial taking (n - 1).
+    Return (n * prev).
+
+Note: ─── Linear Interpolation ─────────────────────────────────
+
+Define an action called "lerp" taking a and b and t that does:
+    Return (a + (b - a) * t).

@@ -1,5 +1,43 @@
-Note: Syl System Standard Library v1.3.
-Note: Provides file system and OS interaction primitives.
+Note: ═══════════════════════════════════════════════════════════
+Note: Syl System Standard Library v1.4
+Note: ═══════════════════════════════════════════════════════════
+Note: Provides file system, process, and OS interaction primitives.
+Note: ═══════════════════════════════════════════════════════════
+
+Note: ─── Platform Detection ───────────────────────────────────
 
 Define an action called "platform" that does:
     Return "windows".
+
+Define an action called "arch" that does:
+    Return "x86_64".
+
+Note: ─── File System ──────────────────────────────────────────
+
+Define an action called "read_file" taking path that does:
+    Read path as content.
+    Return content.
+
+Define an action called "write_file" taking path and data that does:
+    Write data to path.
+
+Define an action called "list_files" taking dir that does:
+    List files in dir as entries.
+    Return entries.
+
+Define an action called "file_exists" taking path that does:
+    Set s to the size of path.
+    Return s.
+
+Note: ─── Directory Operations ─────────────────────────────────
+
+Define an action called "mkdir" taking path that does:
+    Create folder path.
+
+Define an action called "move_file" taking src and dst that does:
+    Move src to dst.
+
+Note: ─── Process ──────────────────────────────────────────────
+
+Define an action called "exit" taking code that does:
+    Print "Exiting with code " joined with code.
