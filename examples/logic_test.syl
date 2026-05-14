@@ -1,0 +1,15 @@
+The project is named "SylTests".
+Bring in "math" as math.
+
+Print "Running Helix Test Suite...".
+
+Set result to (5 * 5).
+Verify that result is 25.
+
+Set root to the square root of 64.
+Verify that root is 8.
+
+Set my_string to "Hello" joined with " World".
+Verify that my_string is "Hello World".
+
+Print "All tests passed successfully!".

@@ -18,6 +18,11 @@ pub enum Expr {
     DeltaTime,
     MouseX,
     MouseY,
+    GetDictKey { dict: String, key: Box<Expr> },
+    JsonFromDict { dict: String },
+    DictFromJson { json: Box<Expr> },
+    CurrentTime,
+    CurrentDate,
 }
 
 #[derive(Debug, Clone)]
@@ -41,63 +46,83 @@ pub struct MatchCase {
     pub body: Vec<Statement>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum Statement {
     Assign { name: String, value: Expr },
     Create { var_type: String, name: String, value: Expr },
     Print { value: Expr },
+    DefineAction { name: String, args: Vec<String>, body: Vec<Statement>, doc: Option<String> },
+    CallAction { name: String, args: Vec<Expr> },
+    Return { value: Expr },
+    
     Write { data: Expr, path: Expr },
     Read { path: Expr, identifier: String },
     List { path: Expr, identifier: String },
     Move { path: Expr, destination: Expr },
     CreateFolder { path: Expr },
-    External { namespace: String, action: String, lib_path: String },
-    Execute { namespace: String, action: String, args: Vec<Expr> },
-    CreateList { name: String, items: Vec<Expr> },
-    AddToList { item: Expr, list_name: String },
-    CallAction { name: String, args: Vec<Expr> },
-    WhileNot { condition_action: String, body: Vec<Statement> },
-    IfKeyPressed { key: String, body: Vec<Statement> },
-    GetItem { identifier: String, index: Expr, list: String },
-    SetItem { index: Expr, list: String, value: Expr },
-    Increase { name: String, amount: Expr },
-    Mutate { name: String, value: Expr },
     
+    Mutate { name: String, value: Expr },
     Copy { src: String, dst: String },
     Lend { src: String, dst: String },
     Give { src: String, dst: String },
     Discard { name: String },
-
+    
     IfElse { condition_var: String, condition_val: Expr, then_branch: Vec<Statement>, else_branch: Option<Vec<Statement>> },
-    IfEndsWith { filename: String, extension: String, body: Vec<Statement> },
     Match { name: String, cases: Vec<MatchCase> },
     ForEach { item: String, collection: String, body: Vec<Statement> },
     Repeat { times: Expr, body: Vec<Statement> },
+    WhileNot { condition_action: String, body: Vec<Statement> },
+    IfEndsWith { filename: String, extension: String, body: Vec<Statement> },
 
     Import { filename: String, alias: String, body: Vec<Statement> },
-    DefineAction { name: String, args: Vec<String>, body: Vec<Statement> },
     ExportAction { action: Box<Statement> },
-    Return { value: Expr },
-
+    External { namespace: String, action: String, lib_path: String },
+    
     Listen { port: Expr },
     RunBackground { action_call: Expr },
     Wait { action_call: Expr },
 
-    DefineEntity { name: String, fields: Vec<(String, Expr)> },
+    CreateList { name: String, items: Vec<Expr> },
+    AddToList { item: Expr, list_name: String },
+    GetItem { identifier: String, index: Expr, list: String },
+    SetItem { index: Expr, list: String, value: Expr },
+    Increase { name: String, amount: Expr },
+    
+    Enforce { name: String, condition: String, crash_msg: String },
+
+    IfKeyPressed { key: String, body: Vec<Statement> },
+    DrawRect { x: Expr, y: Expr, w: Expr, h: Expr, color: Expr },
+    DrawCircle { x: Expr, y: Expr, radius: Expr, color: Expr },
+    
+    Verify { left: Expr, right: Expr },
+    
+    DefineEntity { name: String, fields: Vec<(String, Expr)>, doc: Option<String> },
     CreateEntity { entity_type: String, name: String },
     SetField { field_name: String, entity_instance: String, value: Expr },
     Download { url: Expr, target: String },
     ListWords { source: Expr, identifier: String },
-
-    Enforce { name: String, condition: String, crash_msg: String },
-
-    // v1.4: Advanced UI primitives
-    DrawRect { x: Expr, y: Expr, w: Expr, h: Expr, color: Expr },
-    DrawCircle { x: Expr, y: Expr, radius: Expr, color: Expr },
-
-    // v1.4: Expression-based conditional (supports math blocks)
+    
     IfExpr { condition: Expr, then_branch: Vec<Statement>, else_branch: Option<Vec<Statement>> },
+    Execute { namespace: String, action: String, args: Vec<Expr> },
+
+    // v1.7: Dictionaries and HTTP Server
+    CreateDictionary { name: String },
+    SetDictKey { dict: String, key: Expr, value: Expr },
+    ListenHttp { port: Expr },
+    HttpRequestRoute { path: Expr, body: Vec<Statement> },
+    HttpReply { content: Expr },
+
+    // v1.8: Data Exchange & Graceful Failure
+    Attempt { action: Box<Statement> },
+    IfFailed { body: Vec<Statement> },
+    IfSucceeded { body: Vec<Statement> },
+
+    // v1.9: Database & Time
+    ConnectDB { path: Expr, identifier: String },
+    ExecuteQuery { query: Expr, db_identifier: String, results_list: Option<String> },
 }
+
 
 #[derive(Debug, Clone)]
 pub struct ProjectMetadata {

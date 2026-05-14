@@ -20,6 +20,7 @@ pub enum Token {
     GreaterEqual,
     Indent,
     Dedent,
+    Comment(String),
     EOF,
 }
 
@@ -185,18 +186,22 @@ impl Lexer {
                     s.push(c);
                     self.pos += 1;
                 } else if c == '.' && self.pos + 1 < self.chars.len() && self.chars[self.pos + 1].is_alphabetic() {
+                    // Handle namespaced calls like 'sys.exit'
                     s.push(c);
                     self.pos += 1;
                 } else {
                     break;
                 }
             }
-            if s.eq_ignore_ascii_case("Note") && self.pos < self.chars.len() && self.chars[self.pos] == ':' {
-                self.pos += 1;
+
+            if s == "Note" && self.pos < self.chars.len() && self.chars[self.pos] == ':' {
+                self.pos += 1; // Consume ':'
+                let mut comment = String::new();
                 while self.pos < self.chars.len() && self.chars[self.pos] != '\n' {
+                    comment.push(self.chars[self.pos]);
                     self.pos += 1;
                 }
-                return self.next_token();
+                return Some(Token::Comment(comment.trim().to_string()));
             }
 
             // The lexer keeps "The", "A", etc., as tokens. The parser contextually ignores them.
@@ -208,7 +213,7 @@ impl Lexer {
             }
 
             let mut final_s = s.clone();
-            let keywords = ["Set", "Print", "Give", "Bring", "Define", "Enforce", "Check", "Run", "Return", "When", "Otherwise", "to", "in", "as", "action", "called", "taking", "and", "that", "is", "not", "empty", "or", "crash", "with", "background", "it", "Write", "Read", "List", "files", "For", "each", "file", "If", "ends", "Move", "Create", "folder", "External", "from", "Execute", "key", "pressed", "item", "Make", "Increase", "by", "Space", "Entity", "of", "Download", "joined", "square", "root", "power", "random", "between", "size", "project", "named", "version", "target", "standalone", "executable", "delta", "time", "mouse", "Draw", "rectangle", "circle", "at", "width", "height", "radius", "colored", "words"];
+            let keywords = ["connect", "database", "execute", "query", "current", "time", "date", "attempt", "fails", "succeeds", "json", "http", "request", "hits", "dictionary", "listen", "when", "reply", "verify", "set", "print", "give", "bring", "define", "enforce", "check", "run", "return", "when", "otherwise", "the", "a", "an", "to", "in", "as", "action", "called", "taking", "and", "that", "is", "not", "empty", "or", "crash", "with", "background", "it", "write", "read", "list", "files", "for", "each", "file", "if", "ends", "move", "create", "folder", "external", "from", "execute", "key", "pressed", "item", "make", "increase", "by", "space", "entity", "of", "download", "joined", "square", "root", "power", "random", "between", "size", "project", "named", "version", "target", "standalone", "executable", "delta", "time", "mouse", "draw", "rectangle", "circle", "at", "width", "height", "radius", "colored", "words", "repeat", "begin", "clear", "end"];
             for kw in &keywords {
                 if s.eq_ignore_ascii_case(kw) {
                     final_s = kw.to_string();

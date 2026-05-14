@@ -4,9 +4,10 @@
 //! All functions are `#[no_mangle] extern "C"` so Cranelift can resolve them at link time.
 
 use std::alloc::{alloc, Layout};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 static mut ARENA_PTR: *mut u8 = std::ptr::null_mut();
-static mut ARENA_OFFSET: usize = 0;
+static ARENA_OFFSET: AtomicUsize = AtomicUsize::new(0);
 const ARENA_CAPACITY: usize = 10 * 1024 * 1024; // 10MB default arena
 
 /// Initializes the global arena. Must be called once before any `syl_alloc`.
@@ -19,22 +20,21 @@ pub extern "C" fn syl_arena_init() {
             eprintln!("[ HELIX FATAL ] Failed to allocate native arena.");
             std::process::exit(1);
         }
-        ARENA_OFFSET = 0;
+        ARENA_OFFSET.store(0, Ordering::SeqCst);
     }
 }
 
 /// Bump-allocates `size` bytes from the arena. Panics if the arena is exhausted.
 #[no_mangle]
 pub extern "C" fn syl_alloc(size: usize) -> *mut u8 {
+    let old_offset = ARENA_OFFSET.fetch_add(size, Ordering::SeqCst);
+    if old_offset + size > ARENA_CAPACITY {
+        eprintln!("[ HELIX FATAL ] Native Arena Out of Memory ({} bytes requested, {} / {} used).",
+            size, old_offset, ARENA_CAPACITY);
+        std::process::exit(1);
+    }
     unsafe {
-        if ARENA_OFFSET + size > ARENA_CAPACITY {
-            eprintln!("[ HELIX FATAL ] Native Arena Out of Memory ({} bytes requested, {} / {} used).",
-                size, ARENA_OFFSET, ARENA_CAPACITY);
-            std::process::exit(1);
-        }
-        let ptr = ARENA_PTR.add(ARENA_OFFSET);
-        ARENA_OFFSET += size;
-        ptr
+        ARENA_PTR.add(old_offset)
     }
 }
 
@@ -49,23 +49,25 @@ pub extern "C" fn syl_strdup(src: *const u8) -> *mut u8 {
     }
 }
 
-/// Saves the current arena offset (for scoped memory).
+/// Saves the current arena offset.
 #[no_mangle]
 pub extern "C" fn syl_arena_save() -> usize {
-    unsafe { ARENA_OFFSET }
+    ARENA_OFFSET.load(Ordering::SeqCst)
 }
 
-/// Restores the arena offset, effectively freeing everything allocated after the save point.
+/// Restores the arena offset to a previous state.
 #[no_mangle]
 pub extern "C" fn syl_arena_restore(saved_offset: usize) {
-    unsafe { ARENA_OFFSET = saved_offset; }
+    ARENA_OFFSET.store(saved_offset, Ordering::SeqCst);
 }
 
 /// Internal strlen since we can't depend on libc in all targets.
 unsafe fn libc_strlen(s: *const u8) -> usize {
     let mut len = 0;
-    while *s.add(len) != 0 {
-        len += 1;
+    unsafe {
+        while *s.add(len) != 0 {
+            len += 1;
+        }
     }
     len
 }

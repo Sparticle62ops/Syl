@@ -48,6 +48,7 @@ impl IRGenerator {
                 let reg = self.get_reg(name);
                 self.gen_expr(value, reg);
             }
+            Statement::Verify { .. } => {}
             Statement::Create { name, value, .. } => {
                 let reg = self.get_reg(name);
                 self.gen_expr(value, reg);
@@ -297,7 +298,28 @@ impl IRGenerator {
                 self.gen_expr(value, target_reg);
                 self.emit('M', 'O', target_reg, 0);
             }
-            Expr::DeltaTime | Expr::MouseX | Expr::MouseY => {
+            Expr::DeltaTime => {
+                self.emit('E', 'O', 0, target_reg);
+            }
+            Expr::MouseX => {
+                self.emit('E', 'O', 0, target_reg);
+            }
+            Expr::MouseY => {
+                self.emit('E', 'O', 0, target_reg);
+            }
+            Expr::GetDictKey { .. } => {
+                self.emit('E', 'O', 0, target_reg);
+            }
+            Expr::JsonFromDict { .. } => {
+                self.emit('E', 'O', 0, target_reg);
+            }
+            Expr::DictFromJson { .. } => {
+                self.emit('E', 'O', 0, target_reg);
+            }
+            Expr::CurrentTime => {
+                self.emit('E', 'O', 0, target_reg);
+            }
+            Expr::CurrentDate => {
                 self.emit('E', 'O', 0, target_reg);
             }
         }

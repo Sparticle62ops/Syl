@@ -1,0 +1,24 @@
+The project is named "SylServer".
+Bring in "net" as net.
+
+Print "Syl Web Server starting on http://localhost:8080".
+
+Listen for HTTP on port 8080.
+
+When a request hits "/":
+    Print "Received request for homepage.".
+    Reply with "<h1>Welcome to the Syl Native Web Server!</h1>".
+
+When a request hits "/api/status":
+    Print "Received request for API status.".
+    Create a Dictionary called response_data.
+    Set key "status" in response_data to "Online".
+    Set key "speed" in response_data to "Native".
+    
+    Note: A simple string visualization of our dictionary.
+    Set output to "{ status: " joined with key "status" in response_data.
+    Set output to output joined with ", speed: ".
+    Set output to output joined with key "speed" in response_data.
+    Set output to output joined with " }".
+    
+    Reply with output.

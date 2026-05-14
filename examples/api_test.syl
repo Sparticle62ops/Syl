@@ -1,0 +1,26 @@
+The project is named "SylAPI".
+Bring in "net" as net.
+Bring in "sys" as sys.
+
+Print "Syl Enterprise API starting on http://localhost:8080".
+
+Listen for HTTP on port 8080.
+
+When a request hits "/api/user":
+    Print "Received API request for /api/user".
+    Attempt to read "user_db.json" as raw_data.
+    
+    If it fails:
+        Print "Warning: user_db.json not found. Returning error response.".
+        Create a Dictionary called error_resp.
+        Set key "error" in error_resp to "Database missing.".
+        Set key "suggestion" in error_resp to "Please create user_db.json".
+        Set json_output to JSON from error_resp.
+        Reply with json_output.
+        
+    If it succeeds:
+        Print "Database loaded successfully.".
+        Set user_dict to Dictionary from JSON raw_data.
+        Set key "status" in user_dict to "Active".
+        Set final_json to JSON from user_dict.
+        Reply with final_json.

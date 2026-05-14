@@ -143,6 +143,17 @@ impl NativeEmitter {
                     }
                     println!("[ HELIX GUARD ] Tagged variable '{}' with EVEN parity (Safe).", name);
                 }
+                Statement::Verify { .. } => {}
+                Statement::CreateDictionary { .. } => {}
+                Statement::SetDictKey { .. } => {}
+                Statement::ListenHttp { .. } => {}
+                Statement::HttpRequestRoute { .. } => {}
+                Statement::HttpReply { .. } => {}
+                Statement::Attempt { .. } => {}
+                Statement::IfFailed { .. } => {}
+                Statement::IfSucceeded { .. } => {}
+                Statement::ConnectDB { .. } => {}
+                Statement::ExecuteQuery { .. } => {}
                 Statement::Give { src, dst } => {
                     println!("[ HELIX GUARD ] Tagged variable '{}' with ODD parity (Destructive Move).", src);
                     println!("[ HELIX GUARD ] Tagged variable '{}' with EVEN parity (Safe).", dst);

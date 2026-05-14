@@ -1,0 +1,78 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Syl",
+  "scopeName": "source.syl",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#types"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.note.syl",
+          "match": "\\bNote:.*$"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.syl",
+          "match": "\\b(If|Otherwise|Repeat|While|When|Attempt|fails|succeeds|Return|Verify that|Bring in|Listen for HTTP|Connect to database|Execute query|Listen)\\b"
+        },
+        {
+          "name": "keyword.other.syl",
+          "match": "\\b(Set|Make|Create|Add|Give|Lend|Discard|Mutate|Copy|Run|Check|Increase|Decrease|Draw|Clear|Reply with|JSON from|Dictionary from JSON)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.syl",
+          "match": "\\b(joined with|plus|minus|multiplied by|divided by|is|ends with|on|at|to|in|from|taking|and|or|not|called|hits)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.syl",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.syl",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "numbers": {
+      "name": "constant.numeric.syl",
+      "match": "\\b\\d+(\\.\\d+)?\\b"
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "entity.name.type.syl",
+          "match": "\\b(List|Dictionary|Entity|Number|String|Database)\\b"
+        }
+      ]
+    }
+  }
+}

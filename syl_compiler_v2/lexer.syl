@@ -1,0 +1,18 @@
+The project is named "SylCompilerV2".
+Bring in "sys" as sys.
+Bring in "math" as math.
+
+Note: Represents a single word or symbol in Syl.
+Define an Entity called Token:
+    Set kind to "Unknown".
+    Set value to "".
+    Set line_number to 0.
+
+Note: Reads a raw string and breaks it into Syl Tokens.
+Define an action called tokenize taking raw_code:
+    Create a List called token_list.
+    Print "Lexing source code...".
+    
+    Note: Future logic for parsing English words natively goes here.
+    
+    Return token_list.

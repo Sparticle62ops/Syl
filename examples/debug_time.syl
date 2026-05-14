@@ -1,0 +1,3 @@
+Bring in "time" as time.
+Set x to the current date.
+Print x.

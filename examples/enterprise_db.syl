@@ -1,0 +1,28 @@
+The project is named "SylEnterprise".
+Bring in "net" as net.
+Bring in "db" as db.
+Bring in "time" as time.
+
+Print "Booting Enterprise Server...".
+
+Note: Logs a security event to the console.
+Define an action called log_event taking message:
+    Print "SEC_LOG: " joined with message.
+
+Connect to database "users.db" as user_db.
+
+Execute query "CREATE TABLE IF NOT EXISTS logins (id INTEGER PRIMARY KEY, time TEXT);" on user_db.
+
+Listen for HTTP on port 8080.
+
+When a request hits "/login":
+    Set current_val to the current date.
+    Set query to "INSERT INTO logins (time) VALUES ('" joined with current_val.
+    Set query to query joined with "');".
+    
+    Attempt to Execute query query on user_db.
+    
+    If it succeeds:
+        Reply with "User logged in successfully at " joined with current_val.
+    If it fails:
+        Reply with "Database Error.".
