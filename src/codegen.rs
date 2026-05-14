@@ -8,6 +8,7 @@ pub struct CodeGen {
 impl CodeGen {
     pub fn new() -> Self {
         let preamble = r#"#include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
@@ -17,6 +18,39 @@ impl CodeGen {
 
 // Syl v0.1 C Transpiler Preamble
 typedef char* String;
+
+typedef struct {
+    uint8_t* buffer;
+    size_t offset;
+    size_t capacity;
+} SylArena;
+
+SylArena global_arena;
+
+void syl_arena_init(size_t capacity) {
+    global_arena.buffer = (uint8_t*)malloc(capacity);
+    global_arena.offset = 0;
+    global_arena.capacity = capacity;
+}
+
+void* syl_alloc(size_t size) {
+    if (global_arena.offset + size > global_arena.capacity) {
+        fprintf(stderr, "[ HELIX FATAL ] Arena Out of Memory.\n");
+        exit(1);
+    }
+    void* ptr = global_arena.buffer + global_arena.offset;
+    global_arena.offset += size;
+    return ptr;
+}
+
+char* syl_strdup(const char* s) {
+    size_t len = strlen(s);
+    char* d = syl_alloc(len + 1);
+    if (d) {
+        memcpy(d, s, len + 1);
+    }
+    return d;
+}
 
 int ends_with(char* str, char* suffix) {
     if (!str || !suffix) return 0;
@@ -62,11 +96,13 @@ int ends_with(char* str, char* suffix) {
                     .join(", ");
                 self.push_line(&format!("String {}({}) {{", name, args_str));
                 self.indent_level += 1;
+                self.push_line("size_t _arena_save = global_arena.offset;");
                 for b in body {
                     self.gen_statement(b);
                 }
                 
                 // Add a default return if needed, but not required for MVP
+                self.push_line("global_arena.offset = _arena_save;");
                 self.indent_level -= 1;
                 self.push_line("}");
             }
@@ -160,7 +196,7 @@ int ends_with(char* str, char* suffix) {
                 self.push_line(&format!("{{ FILE *f = fopen({}, \"r\"); if (f) {{", path_str));
                 self.indent_level += 1;
                 self.push_line("fseek(f, 0, SEEK_END); long fsize = ftell(f); fseek(f, 0, SEEK_SET);");
-                self.push_line(&format!("{} = malloc(fsize + 1);", identifier));
+                self.push_line(&format!("{} = syl_alloc(fsize + 1);", identifier));
                 self.push_line(&format!("fread({}, 1, fsize, f); {}[fsize] = 0;", identifier, identifier));
                 self.push_line("fclose(f);");
                 self.indent_level -= 1;
@@ -168,12 +204,12 @@ int ends_with(char* str, char* suffix) {
             }
             Statement::List { path, identifier } => {
                 let path_str = self.gen_expr(path);
-                self.push_line(&format!("String* {} = malloc(1024 * sizeof(String));", identifier));
+                self.push_line(&format!("String* {} = syl_alloc(1024 * sizeof(String));", identifier));
                 self.push_line(&format!("int {}_count = 0;", identifier));
                 self.push_line(&format!("{{ DIR *d = opendir({}); if (d) {{", path_str));
                 self.indent_level += 1;
                 self.push_line("struct dirent *dir;");
-                self.push_line(&format!("while ((dir = readdir(d)) != NULL) {{ {}[{}_count++] = strdup(dir->d_name); }}", identifier, identifier));
+                self.push_line(&format!("while ((dir = readdir(d)) != NULL) {{ {}[{}_count++] = syl_strdup(dir->d_name); }}", identifier, identifier));
                 self.push_line("closedir(d);");
                 self.indent_level -= 1;
                 self.push_line("} }");
@@ -217,16 +253,16 @@ int ends_with(char* str, char* suffix) {
                 self.push_line(&format!("{}_{}({});", namespace, action, args_str));
             }
             Statement::CreateList { name, items } => {
-                self.push_line(&format!("String* {} = malloc(1024 * sizeof(String));", name));
+                self.push_line(&format!("String* {} = syl_alloc(1024 * sizeof(String));", name));
                 self.push_line(&format!("int {}_count = 0;", name));
                 for item in items {
                     let val = self.gen_expr(item);
-                    self.push_line(&format!("{}[{}_count++] = strdup({});", name, name, val));
+                    self.push_line(&format!("{}[{}_count++] = syl_strdup({});", name, name, val));
                 }
             }
             Statement::AddToList { item, list_name } => {
                 let val = self.gen_expr(item);
-                self.push_line(&format!("{}[{}_count++] = strdup({});", list_name, list_name, val));
+                self.push_line(&format!("{}[{}_count++] = syl_strdup({});", list_name, list_name, val));
             }
             Statement::CallAction { name, args } => {
                 let c_name = if name.starts_with("ui_") { &name[3..] } else { name };
@@ -315,10 +351,10 @@ int ends_with(char* str, char* suffix) {
             }
             Statement::ListWords { source, identifier } => {
                 let src_str = self.gen_expr(source);
-                self.push_line(&format!("String* {} = malloc(1024 * sizeof(String));", identifier));
+                self.push_line(&format!("String* {} = syl_alloc(1024 * sizeof(String));", identifier));
                 self.push_line(&format!("int {}_count = 0;", identifier));
-                self.push_line(&format!("{{ char* s = strdup({}); char* tok = strtok(s, \" \t\\n\");", src_str));
-                self.push_line(&format!("  while(tok) {{ {}[{}_count++] = strdup(tok); tok = strtok(NULL, \" \t\\n\"); }} }}", identifier, identifier));
+                self.push_line(&format!("{{ char* s = syl_strdup({}); char* tok = strtok(s, \" \t\\n\");", src_str));
+                self.push_line(&format!("  while(tok) {{ {}[{}_count++] = syl_strdup(tok); tok = strtok(NULL, \" \t\\n\"); }} }}", identifier, identifier));
             }
             Statement::Increase { name, amount } => {
                 let amt_str = self.gen_expr(amount);
@@ -333,7 +369,7 @@ int ends_with(char* str, char* suffix) {
                 let idx_str = self.gen_expr(index);
                 let val_str = self.gen_expr(value);
                 self.push_line(&format!("if ({} < 1 || {} > {}_count) {{ fprintf(stderr, \"[ HELIX FATAL ] Index out of bounds: %d\\n\", {}); exit(1); }}", idx_str, idx_str, list, idx_str));
-                self.push_line(&format!("{}[{}-1] = strdup({});", list, idx_str, val_str));
+                self.push_line(&format!("{}[{}-1] = syl_strdup({});", list, idx_str, val_str));
             }
             _ => {
                 self.push_line("// Unimplemented statement transpilation");
@@ -361,7 +397,7 @@ int ends_with(char* str, char* suffix) {
             Expr::Join { left, right } => {
                 let l = self.gen_expr(left);
                 let r = self.gen_expr(right);
-                format!("({{ char* res = malloc(strlen({}) + strlen({}) + 1); strcpy(res, {}); strcat(res, {}); res; }})", l, r, l, r)
+                format!("({{ char* res = syl_alloc(strlen({}) + strlen({}) + 1); strcpy(res, {}); strcat(res, {}); res; }})", l, r, l, r)
             }
             Expr::Sqrt { value } => {
                 format!("sqrt({})", self.gen_expr(value))

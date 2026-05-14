@@ -93,6 +93,7 @@ fn main() {
     // Wrap top-level statements in main()
     let mut c_final = codegen.c_code.clone();
     c_final.push_str("\nint main() {\n");
+    c_final.push_str("    syl_arena_init(1024 * 1024 * 10); // 10MB default arena\n");
     codegen.c_code = "".to_string(); // reset for generation
     codegen.generate(&ast);
     c_final.push_str(&codegen.c_code);
