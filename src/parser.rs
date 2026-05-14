@@ -167,34 +167,81 @@ impl<'a> Parser<'a> {
             other => Err(self.error_msg(&format!("Expected a statement, but found {:?}.", other))),
         }
     }
-
     // Bring in "auth.syl" as auth.
     fn parse_bring(&mut self) -> Result<Statement, String> {
         self.expect_word("Bring")?;
         self.expect_word("in")?;
         let filename = match self.advance() {
             Some(Token::StringLit(s)) => s.clone(),
-            other => return Err(format!("Expected string, got {:?}", other)),
+            other => return Err(self.error_msg(&format!("Expected a module name in quotes after 'Bring in', but found {:?}.", other))),
         };
         self.expect_word("as")?;
         let alias = self.expect_ident()?;
         self.expect_punct('.')?;
 
         let mut body = Vec::new();
-        if filename == "sys" {
-            println!("[ PARSE ] sys (virtual)");
+
+        // Virtual modules (built-in, no file needed)
+        let virtual_modules = ["sys", "core", "ui", "net", "math"];
+        if virtual_modules.contains(&filename.as_str()) {
+            println!("[ PARSE ] {} (virtual module)", filename);
             self.imported_modules.insert(filename.clone());
             return Ok(Statement::Import { filename, alias, body });
         }
 
         if !self.imported_modules.contains(&filename) {
-            println!("[ PARSE ] {}", filename);
             self.imported_modules.insert(filename.clone());
-            
-            let file_path = self.base_path.join(&filename);
-            let source = match fs::read_to_string(&file_path) {
+
+            // Resolve the module file path with fallback chain:
+            // 1. Local directory (relative to the importing file)
+            // 2. SYL_LIB_PATH environment variable
+            // 3. Executable-relative ../lib/ directory
+            let syl_filename = if filename.ends_with(".syl") {
+                filename.clone()
+            } else {
+                format!("{}.syl", filename)
+            };
+
+            let local_path = self.base_path.join(&syl_filename);
+            let resolved_path = if local_path.exists() {
+                println!("[ PARSE ] {} (local)", syl_filename);
+                local_path
+            } else if let Ok(lib_path) = std::env::var("SYL_LIB_PATH") {
+                let global_path = std::path::PathBuf::from(&lib_path).join(&syl_filename);
+                if global_path.exists() {
+                    println!("[ PARSE ] {} (SYL_LIB_PATH: {})", syl_filename, lib_path);
+                    global_path
+                } else {
+                    return Err(self.error_msg(&format!(
+                        "I could not find the module '{}'. I looked in:\n  1. {}\n  2. {}",
+                        filename, local_path.display(), global_path.display()
+                    )));
+                }
+            } else {
+                // Fallback: look relative to the syl executable
+                let exe_lib = std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.parent().map(|d| d.join("../lib").join(&syl_filename)));
+                if let Some(ref exe_path) = exe_lib {
+                    if exe_path.exists() {
+                        println!("[ PARSE ] {} (SDK lib/)", syl_filename);
+                        exe_path.clone()
+                    } else {
+                        return Err(self.error_msg(&format!(
+                            "I could not find the module '{}'. I looked in:\n  1. {}\n  Set SYL_LIB_PATH to your Syl standard library directory.",
+                            filename, local_path.display()
+                        )));
+                    }
+                } else {
+                    return Err(self.error_msg(&format!(
+                        "I could not find the module '{}' in the local directory.", filename
+                    )));
+                }
+            };
+
+            let source = match fs::read_to_string(&resolved_path) {
                 Ok(s) => s,
-                Err(e) => return Err(format!("Failed to import module {}: {}", filename, e)),
+                Err(e) => return Err(self.error_msg(&format!("Failed to read module '{}': {}", filename, e))),
             };
             
             let mut lexer = Lexer::new(&source);

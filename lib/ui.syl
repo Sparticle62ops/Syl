@@ -1,0 +1,8 @@
+Note: Syl UI Standard Library v1.3.
+Note: Provides windowing and drawing via Raylib.
+
+Define an action called "open_window" taking width and height and title that does:
+    Execute ui.InitWindow taking width and height and title.
+
+Define an action called "close_window" that does:
+    Execute ui.CloseWindow.

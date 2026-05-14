@@ -14,11 +14,27 @@ use ir::IRGenerator;
 use codegen::CodeGen;
 use emit_native::NativeEmitter;
 
+const VERSION: &str = "1.3.0";
+
+fn print_splash() {
+    println!();
+    println!("  \u{1F9EC} Syl Language Compiler [v{}-Release]", VERSION);
+    println!("  ─────────────────────────────────────────");
+    println!("  Usage:");
+    println!("    syl build <file.syl>              - Compiles to native C/Binary");
+    println!("    syl build <file.syl> --standalone  - Compiles via Cranelift Native Backend");
+    println!("    syl run <file.syl>                 - Compiles and executes immediately");
+    println!();
+    println!("  Environment:");
+    println!("    SYL_LIB_PATH  - Override the standard library search path");
+    println!();
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
-        eprintln!("Usage: syl [build|run] <file.syl> [--standalone]");
-        std::process::exit(1);
+        print_splash();
+        std::process::exit(0);
     }
 
     let command = &args[1];
@@ -29,8 +45,8 @@ fn main() {
         std::process::exit(1);
     });
 
-    println!("Syl Compiler [v1.2.5-arena]");
-    println!("[ HELIX v1.2 ] PARSING: {}", filename);
+    println!("Syl Compiler [v{}-Release]", VERSION);
+    println!("[ HELIX ] PARSING: {}", filename);
 
     let file_path = Path::new(filename);
     let base_path = file_path.parent().unwrap_or(Path::new(""));
@@ -49,7 +65,6 @@ fn main() {
         }
     };
 
-    // AST Generated (silent for CLI feedback standard)
     // Generate Helix IR
     let mut ir_gen = IRGenerator::new();
     ir_gen.generate(&ast);
@@ -61,14 +76,14 @@ fn main() {
 
     let hlx_filename = format!("{}.hlx", file_stem);
     fs::write(&hlx_filename, hlx_content).unwrap_or_else(|_| {
-        eprintln!("[ HELIX v1.1 ] ERROR: Failed to write {}", hlx_filename);
+        eprintln!("[ HELIX ] ERROR: Failed to write {}", hlx_filename);
     });
-    println!("[ HELIX v1.1 ] GENERATED: {}", hlx_filename);
+    println!("[ HELIX ] GENERATED: {}", hlx_filename);
 
     let final_is_standalone = is_standalone || parser.metadata.target == "executable";
 
     if final_is_standalone {
-        println!("[ HELIX v1.1 ] NATIVE: Initializing Cranelift Native Pipeline...");
+        println!("[ HELIX ] NATIVE: Initializing Cranelift Native Pipeline...");
         let mut native = NativeEmitter::new();
         native.compile_ast(&ast);
         let obj_data = native.finish();
@@ -102,12 +117,12 @@ fn main() {
 
     let c_filename = format!("{}.c", file_stem);
     fs::write(&c_filename, c_final).unwrap_or_else(|_| {
-        eprintln!("[ HELIX v1.1 ] ERROR: Failed to write {}", c_filename);
+        eprintln!("[ HELIX ] ERROR: Failed to write {}", c_filename);
     });
-    println!("[ HELIX v1.1 ] TRANSPILING: {}", c_filename);
+    println!("[ HELIX ] TRANSPILING: {}", c_filename);
 
     if command == "run" {
-        println!("[ HELIX v1.1 ] BUILDING: Compiling with TCC...");
+        println!("[ HELIX ] BUILDING: Compiling with TCC...");
         let tcc_path = "tools/tcc/tcc/tcc.exe";
         let exe_filename = format!("{}.exe", file_stem);
         
@@ -117,16 +132,16 @@ fn main() {
 
         if let Ok(s) = status {
             if s.success() {
-                println!("[ HELIX v1.1 ] SUCCESS: Binary \"{}\" generated.", exe_filename);
-                println!("[ HELIX v1.1 ] RUNNING: Executing {}...", exe_filename);
+                println!("[ HELIX ] SUCCESS: Binary \"{}\" generated.", exe_filename);
+                println!("[ HELIX ] RUNNING: Executing {}...", exe_filename);
                 let _ = std::process::Command::new(format!("./{}", exe_filename)).status();
             } else {
-                eprintln!("[ HELIX v1.1 ] ERROR: TCC compilation failed.");
+                eprintln!("[ HELIX ] ERROR: TCC compilation failed.");
             }
         } else {
-            eprintln!("[ HELIX v1.1 ] ERROR: Could not find TCC at {}.", tcc_path);
+            eprintln!("[ HELIX ] ERROR: Could not find TCC at {}.", tcc_path);
         }
     } else {
-        println!("[ HELIX v1.1 ] SUCCESS: Production binary ready at ./{}", file_stem);
+        println!("[ HELIX ] SUCCESS: Production binary ready at ./{}", file_stem);
     }
 }

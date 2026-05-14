@@ -1,0 +1,6 @@
+Note: Syl Networking Standard Library v1.3.
+Note: Provides HTTP and socket primitives.
+
+Define an action called "fetch" taking url that does:
+    Download url as response.
+    Return response.

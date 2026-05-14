@@ -1,0 +1,5 @@
+Note: Syl Core Standard Library v1.3.
+Note: Provides fundamental utilities for all Syl programs.
+
+Define an action called "version" that does:
+    Return "1.3.0".

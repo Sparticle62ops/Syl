@@ -1,0 +1,5 @@
+Note: Syl System Standard Library v1.3.
+Note: Provides file system and OS interaction primitives.
+
+Define an action called "platform" that does:
+    Return "windows".

@@ -1,0 +1,10 @@
+Note: Syl Math Standard Library v1.3.
+Note: Provides mathematical primitives beyond basic arithmetic.
+
+Define an action called "pi" that does:
+    Return 3.
+
+Define an action called "abs" taking n that does:
+    If n is less than 0:
+        Return 0.
+    Return n.
