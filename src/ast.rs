@@ -121,6 +121,11 @@ pub enum Statement {
     // v1.9: Database & Time
     ConnectDB { path: Expr, identifier: String },
     ExecuteQuery { query: Expr, db_identifier: String, results_list: Option<String> },
+
+    // v2.0 Terminal Control
+    ClearTerminal,
+    WaitForKeyPress { var: String },
+    SleepMilliseconds { duration: Expr },
 }
 
 

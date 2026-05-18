@@ -183,6 +183,8 @@ impl<'a> Parser<'a> {
                     "reply" => self.parse_http_reply(),
                     "attempt" => self.parse_attempt(),
                     "connect" => self.parse_connect_db(),
+                    "wait" => self.parse_wait(),
+                    "sleep" => self.parse_sleep(),
                     _ => Err(self.error_msg(&format!("I don't understand the statement starting with '{}'. Check your spelling or keyword.", w))),
                 }
             }
@@ -656,6 +658,15 @@ impl<'a> Parser<'a> {
                 self.advance();
             }
         }
+        
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "terminal" {
+                self.advance();
+                self.expect_punct('.')?;
+                return Ok(Statement::ClearTerminal);
+            }
+        }
+
         self.expect_word("background")?;
         self.expect_word("to")?;
         let color = self.parse_expr()?;
@@ -1333,7 +1344,25 @@ impl<'a> Parser<'a> {
             }
             other => Err(self.error_msg(&format!("I was expecting an expression here, but I found {:?}", other))),
         }
+    }    fn parse_sleep(&mut self) -> Result<Statement, String> {
+        self.expect_word("sleep")?;
+        self.expect_word("for")?;
+        let duration = self.parse_expr()?;
+        self.expect_word("milliseconds")?;
+        self.expect_punct('.')?;
+        Ok(Statement::SleepMilliseconds { duration })
     }
 
+    fn parse_wait(&mut self) -> Result<Statement, String> {
+        self.expect_word("wait")?;
+        self.expect_word("for")?;
+        self.expect_word("key")?;
+        self.expect_word("press")?;
+        self.expect_word("as")?;
+        let var = self.expect_ident()?;
+        self.expect_punct('.')?;
+        Ok(Statement::WaitForKeyPress { var })
+    }
 }
+
 

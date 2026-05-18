@@ -240,12 +240,24 @@ impl IRGenerator {
                 let reg = self.get_reg(identifier);
                 self.emit('L', 'O', 0, reg);
             }
+            Statement::ClearTerminal => {
+                self.emit('C', 'O', 0, 0); // CO = Clear Output
+            }
+            Statement::WaitForKeyPress { var } => {
+                let reg = self.get_reg(var);
+                self.emit('W', 'K', reg, 0); // WK = Wait Key
+            }
+            Statement::SleepMilliseconds { duration } => {
+                self.gen_expr(duration, 0);
+                self.emit('S', 'L', 0, 0); // SL = Sleep
+            }
             _ => {
                 // Remaining statement types emit a no-op
                 self.emit('N', 'O', 0, 0);
             }
         }
     }
+
 
     fn gen_expr(&mut self, expr: &Expr, target_reg: usize) {
         match expr {

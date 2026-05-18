@@ -154,6 +154,9 @@ impl NativeEmitter {
                 Statement::IfSucceeded { .. } => {}
                 Statement::ConnectDB { .. } => {}
                 Statement::ExecuteQuery { .. } => {}
+                Statement::ClearTerminal => {}
+                Statement::WaitForKeyPress { .. } => {}
+                Statement::SleepMilliseconds { .. } => {}
                 Statement::Give { src, dst } => {
                     println!("[ HELIX GUARD ] Tagged variable '{}' with ODD parity (Destructive Move).", src);
                     println!("[ HELIX GUARD ] Tagged variable '{}' with EVEN parity (Safe).", dst);

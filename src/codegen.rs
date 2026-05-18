@@ -714,10 +714,27 @@ String _syl_current_path;
                     self.push_line(&format!("syl_db_execute({}, {});", db_identifier, q));
                 }
             }
+            Statement::ClearTerminal => {
+                self.push_line("printf(\"\\x1B[2J\\x1B[1;1H\");");
+            }
+            Statement::WaitForKeyPress { var } => {
+                self.var_types.insert(var.clone(), "String".to_string());
+                self.push_line(&format!("String {} = \"\";", var));
+                self.push_line(&format!("{{ char c = getchar(); char buf[2] = {{c, 0}}; {} = syl_strdup(buf); }}", var));
+            }
+            Statement::SleepMilliseconds { duration } => {
+                let dur = self.gen_expr(duration);
+                self.push_line(&format!("#ifdef _WIN32"));
+                self.push_line(&format!("Sleep((DWORD)({}));", dur));
+                self.push_line(&format!("#else"));
+                self.push_line(&format!("usleep((useconds_t)(({}) * 1000));", dur));
+                self.push_line(&format!("#endif"));
+            }
             _ => {
                 self.push_line("// Unimplemented statement transpilation");
             }
         }
+
     }
 
     fn gen_expr(&self, expr: &Expr) -> String {

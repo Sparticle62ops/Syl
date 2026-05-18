@@ -14,36 +14,80 @@ use ir::IRGenerator;
 use codegen::CodeGen;
 use emit_native::NativeEmitter;
 
-const VERSION: &str = "1.3.0";
+mod tui;
+
+const VERSION: &str = "2.0.0-Beta";
+
+const ANSI_BOLD_CYAN: &str = "\x1b[1;36m";
+const ANSI_BOLD_MAGENTA: &str = "\x1b[1;35m";
+const ANSI_BOLD_GREEN: &str = "\x1b[1;32m";
+const ANSI_BOLD_RED: &str = "\x1b[1;31m";
+const ANSI_RESET: &str = "\x1b[0m";
 
 fn print_splash() {
     println!();
-    println!("  \u{1F9EC} Syl Language Compiler [v{}-Release]", VERSION);
+    println!("{}", ANSI_BOLD_CYAN);
+    println!("   _____ __  __   ");
+    println!("  / ___/ \\ \\/ / /   ");
+    println!("  \\__ \\   \\  / /    ");
+    println!(" ___/ /   / / /___  ");
+    println!("/____/   /_/ /_____/");
+    println!("                    ");
+    println!("{}  \u{1F9EC} Syl OS Compiler [v{}-Beta]", ANSI_RESET, VERSION);
     println!("  ─────────────────────────────────────────");
     println!("  Usage:");
-    println!("    syl build <file.syl>              - Compiles to native C/Binary");
-    println!("    syl build <file.syl> --standalone  - Compiles via Cranelift Native Backend");
-    println!("    syl run <file.syl>                 - Compiles and executes immediately");
-    println!("    syl test <file.syl>                - Runs a Syl test suite");
-    println!("    syl get <url>                      - Installs a .syx package from the internet");
-    println!();
-    println!("  Environment:");
-    println!("    SYL_LIB_PATH  - Override the standard library search path");
+    println!("    syl build <file>    - Compiles to native binary");
+    println!("    syl run <file>      - Compiles and executes immediately");
+    println!("    syl ide             - Opens the Terminal OS Environment");
+    println!("    syl share <file>    - Uploads code to the Helix Network");
+    println!("    syl get <url|code>  - Installs a package from the internet");
     println!();
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    if args.len() < 3 {
+    if args.len() < 2 {
         print_splash();
         std::process::exit(0);
     }
 
     let command = &args[1];
+    
+    if command == "ide" {
+        tui::start_ide();
+        return;
+    }
+
+    if args.len() < 3 {
+        print_splash();
+        std::process::exit(0);
+    }
+
     let filename = &args[2];
     
+    if command == "share" {
+        println!("{}[ \u{1F9EC} SYL NETWORK ]{} Uploading {}...", ANSI_BOLD_CYAN, ANSI_RESET, filename);
+        let output = std::process::Command::new("curl")
+            .args(&["-T", filename, &format!("https://transfer.sh/{}", filename)])
+            .output()
+            .expect("Failed to execute curl");
+        
+        let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if url.starts_with("https://transfer.sh/") {
+            let shortcode = url.replace("https://transfer.sh/", "HLX-");
+            println!("{}[ \u{1F9EC} SUCCESS ]{} File uploaded securely.", ANSI_BOLD_GREEN, ANSI_RESET);
+            println!("Tell your friend to run: syl get {}", shortcode);
+        } else {
+            println!("{}[ \u{1F9EC} FATAL ]{} Failed to upload file.", ANSI_BOLD_RED, ANSI_RESET);
+        }
+        return;
+    }
+    
     if command == "get" {
-        let url = filename;
+        let mut url = filename.to_string();
+        if url.starts_with("HLX-") {
+            url = url.replace("HLX-", "https://transfer.sh/");
+        }
         let dl_name = url.split('/').last().unwrap_or("downloaded.syx");
         let local_app_data = std::env::var("LOCALAPPDATA").expect("Could not find LOCALAPPDATA");
         let lib_dir = Path::new(&local_app_data).join("Syl").join("lib");
@@ -52,17 +96,17 @@ fn main() {
             fs::create_dir_all(&lib_dir).unwrap();
         }
         
-        println!("[ HELIX NETWORK ] Downloading {}...", dl_name);
+        println!("{}[ \u{1F9EC} SYL NETWORK ]{} Downloading {}...", ANSI_BOLD_CYAN, ANSI_RESET, dl_name);
         let status = std::process::Command::new("curl")
-            .args(&["-sL", url, "-o", dl_name])
+            .args(&["-sL", &url, "-o", dl_name])
             .current_dir(&lib_dir)
             .status()
             .expect("Failed to execute curl");
             
         if status.success() {
-            println!("[ HELIX NETWORK ] Successfully installed '{}' to global library.", dl_name);
+            println!("{}[ \u{1F9EC} SUCCESS ]{} Installed '{}' to global library.", ANSI_BOLD_GREEN, ANSI_RESET, dl_name);
         } else {
-            eprintln!("[ HELIX FATAL ] Failed to download package from {}", url);
+            eprintln!("{}[ \u{1F9EC} FATAL ]{} Failed to download package from {}", ANSI_BOLD_RED, ANSI_RESET, url);
         }
         return;
     }
