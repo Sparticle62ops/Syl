@@ -130,6 +130,9 @@ impl NativeEmitter {
                 Statement::WhileNot { body, .. } => {
                     self.compile_ast(body);
                 }
+                Statement::While { body, .. } => {
+                    self.compile_ast(body);
+                }
                 Statement::DefineAction { name, body, .. } => {
                     // Scoped arena: save offset at prologue, restore at epilogue
                     println!("[ NATIVE ] Emitting action '{}' with scoped arena memory.", name);

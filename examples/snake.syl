@@ -1,0 +1,43 @@
+The project is named "TerminalSnake".
+
+Set game_over to 0.
+Set snake_x to 10.
+Set snake_y to 10.
+Set food_x to 15.
+Set food_y to 15.
+
+Clear the terminal.
+
+Repeat while game_over is 0:
+    Note: Draw the game state.
+    Clear the terminal.
+    Draw terminal box at 0, 0 with width 30 and height 20.
+    
+    Move cursor to food_x, food_y.
+    Print "@" colored "red".
+    
+    Move cursor to snake_x, snake_y.
+    Print "O" colored "green".
+    
+    Note: Read input non-blocking.
+    Wait for key press as input_key.
+    
+    If input_key is "w":
+        Set snake_y to (snake_y - 1).
+    If input_key is "s":
+        Set snake_y to (snake_y + 1).
+    If input_key is "a":
+        Set snake_x to (snake_x - 1).
+    If input_key is "d":
+        Set snake_x to (snake_x + 1).
+    If input_key is "q":
+        Set game_over to 1.
+    
+    If (snake_x == food_x) and (snake_y == food_y):
+        Set food_x to a random number between 1 and 28.
+        Set food_y to a random number between 1 and 18.
+    
+    Sleep for 100 milliseconds.
+
+Clear the terminal.
+Print "Game Over!" colored "red".

@@ -5,41 +5,37 @@ pub struct CodeGen {
     pub http_dispatch_code: String,
     indent_level: usize,
     pub var_types: std::collections::HashMap<String, String>,
+    pub use_sqlite: bool,
+    pub use_net: bool,
 }
 
 impl CodeGen {
     pub fn new() -> Self {
-        let preamble = r#"#include <stdio.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <dirent.h>
-#include <sys/stat.h>
-#include <math.h>
-#include <time.h>
-#include <sqlite3.h>
+        CodeGen {
+            c_code: "".to_string(),
+            http_dispatch_code: "".to_string(),
+            indent_level: 0,
+            var_types: std::collections::HashMap::new(),
+            use_sqlite: false,
+            use_net: false,
+        }
+    }
 
-#ifdef _WIN32
-    #include <winsock2.h>
-    #pragma comment(lib, "ws2_32.lib")
-#else
-    #include <sys/socket.h>
-    #include <netinet/in.h>
-    #include <arpa/inet.h>
-    #include <unistd.h>
-    typedef int SOCKET;
-    #define INVALID_SOCKET -1
-    #define closesocket close
-#endif
+    fn get_preamble(&self, use_sqlite: bool, use_net: bool) -> String {
+        let mut sqlite_include = "";
+        let mut sqlite_typedef = "typedef void* Database;\n";
+        let mut sqlite_funcs = r#"
+Database syl_db_connect(String path) {
+    return NULL;
+}
+void syl_db_execute(Database db, String query) {
+}
+"#;
 
-#include "raylib.h"
-
-// Syl v0.1 C Transpiler Preamble
-typedef char* String;
-String _syl_last_error = NULL;
-
-typedef sqlite3* Database;
-
+        if use_sqlite {
+            sqlite_include = "#include <sqlite3.h>\n";
+            sqlite_typedef = "typedef sqlite3* Database;\n";
+            sqlite_funcs = r#"
 Database syl_db_connect(String path) {
     sqlite3* db;
     int rc = sqlite3_open(path, &db);
@@ -61,152 +57,210 @@ void syl_db_execute(Database db, String query) {
         _syl_last_error = NULL;
     }
 }
-
-double syl_time_now() {
-    return (double)time(NULL);
-}
-
-String syl_date_now() {
-    time_t t = time(NULL);
-    struct tm *tm = localtime(&t);
-    char* s = (char*)syl_alloc(64);
-    strftime(s, 64, "%Y-%m-%d", tm);
-    return s;
-}
-
-
-typedef struct {
-    uint8_t* buffer;
-    size_t offset;
-    size_t capacity;
-} SylArena;
-
-SylArena global_arena;
-
-void syl_arena_init(size_t capacity) {
-    global_arena.buffer = (uint8_t*)malloc(capacity);
-    global_arena.offset = 0;
-    global_arena.capacity = capacity;
-}
-
-void* syl_alloc(size_t size) {
-    if (global_arena.offset + size > global_arena.capacity) {
-        fprintf(stderr, "[ HELIX FATAL ] Arena Out of Memory.\n");
-        exit(1);
-    }
-    void* ptr = global_arena.buffer + global_arena.offset;
-    global_arena.offset += size;
-    return ptr;
-}
-
-char* syl_strdup(const char* s) {
-    if (!s) return "";
-    size_t len = strlen(s);
-    char* d = (char*)syl_alloc(len + 1);
-    if (d) {
-        memcpy(d, s, len + 1);
-    }
-    return d;
-}
-
-int ends_with(char* str, char* suffix) {
-    if (!str || !suffix) return 0;
-    size_t lenstr = strlen(str);
-    size_t lensuffix = strlen(suffix);
-    if (lensuffix > lenstr) return 0;
-    return strncmp(str + lenstr - lensuffix, suffix, lensuffix) == 0;
-}
-
-typedef struct {
-    String* keys;
-    String* values;
-    int count;
-    int capacity;
-} Dictionary;
-
-Dictionary syl_dict_create() {
-    Dictionary d;
-    d.capacity = 128;
-    d.count = 0;
-    d.keys = (String*)syl_alloc(sizeof(String) * d.capacity);
-    d.values = (String*)syl_alloc(sizeof(String) * d.capacity);
-    return d;
-}
-
-void syl_dict_set(Dictionary* d, String key, String value) {
-    for (int i = 0; i < d->count; i++) {
-        if (strcmp(d->keys[i], key) == 0) {
-            d->values[i] = value;
-            return;
+"#;
         }
-    }
-    if (d->count >= d->capacity) return;
-    d->keys[d->count] = key;
-    d->values[d->count] = value;
-    d->count++;
-}
 
-String syl_dict_get(Dictionary d, String key) {
-    for (int i = 0; i < d.count; i++) {
-        if (strcmp(d.keys[i], key) == 0) {
-            return d.values[i];
-        }
-    }
-    return "";
-}
+        let mut net_include = "";
+        let mut net_typedefs = "typedef int SOCKET;\n#define INVALID_SOCKET -1\n#define closesocket close\n";
+        let mut net_funcs = r#"
+void syl_http_reply(SOCKET client, String content) {}
+SOCKET _syl_current_client = 0;
+String _syl_current_path = "";
+"#;
 
-String syl_json_from_dict(Dictionary d) {
-    char* buffer = (char*)syl_alloc(8192);
-    strcpy(buffer, "{");
-    for (int i = 0; i < d.count; i++) {
-        strcat(buffer, "\"");
-        strcat(buffer, d.keys[i]);
-        strcat(buffer, "\": \"");
-        strcat(buffer, d.values[i]);
-        strcat(buffer, "\"");
-        if (i < d.count - 1) strcat(buffer, ", ");
-    }
-    strcat(buffer, "}");
-    return buffer;
-}
-
-Dictionary syl_dict_from_json(String j) {
-    Dictionary d = syl_dict_create();
-    char* copy = strdup(j); // Use system strdup for scratch
-    char* p = copy;
-    while (*p) {
-        if (*p == '"') {
-            p++;
-            char* key = p;
-            while (*p && *p != '"') p++;
-            if (*p) { *p = 0; p++; }
-            while (*p && (*p == ':' || *p == ' ' || *p == '"')) p++;
-            char* val = p;
-            while (*p && *p != '"') p++;
-            if (*p) { *p = 0; p++; }
-            syl_dict_set(&d, syl_strdup(key), syl_strdup(val));
-        } else p++;
-    }
-    free(copy);
-    return d;
-}
-
+        if use_net {
+            net_include = r#"
+#ifdef _WIN32
+    #include <winsock2.h>
+    #pragma comment(lib, "ws2_32.lib")
+#else
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #include <arpa/inet.h>
+    #include <unistd.h>
+#endif
+"#;
+            net_typedefs = r#"
+#ifdef _WIN32
+    // SOCKET is defined in winsock2.h
+#else
+    typedef int SOCKET;
+    #define INVALID_SOCKET -1
+    #define closesocket close
+#endif
+"#;
+            net_funcs = r#"
 void syl_http_reply(SOCKET client, String content) {
     char header[512];
     sprintf(header, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: %d\r\n\r\n", (int)strlen(content));
     send(client, header, strlen(header), 0);
     send(client, content, strlen(content), 0);
 }
-
 SOCKET _syl_current_client;
 String _syl_current_path;
 "#;
-        CodeGen {
-            c_code: preamble.to_string(),
-            http_dispatch_code: "".to_string(),
-            indent_level: 0,
-            var_types: std::collections::HashMap::new(),
         }
+
+        let preamble = format!(r#"#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <math.h>
+#include <time.h>
+{}
+#ifdef _WIN32
+    #define NOGDI
+    #define NOUSER
+    #include <windows.h>
+    #include <conio.h>
+#else
+    #include <termios.h>
+#endif
+{}
+#include "raylib.h"
+
+// Syl v0.1 C Transpiler Preamble
+typedef char* String;
+String _syl_last_error = NULL;
+void* syl_alloc(size_t size);
+char* syl_strdup(const char* s);
+
+{}
+{}
+{}
+{}
+double syl_time_now() {{
+    return (double)time(NULL);
+}}
+
+String syl_date_now() {{
+    time_t t = time(NULL);
+    struct tm *tm = localtime(&t);
+    char* s = (char*)syl_alloc(64);
+    strftime(s, 64, "%Y-%m-%d", tm);
+    return s;
+}}
+
+
+typedef struct {{
+    uint8_t* buffer;
+    size_t offset;
+    size_t capacity;
+}} SylArena;
+
+SylArena global_arena;
+
+void syl_arena_init(size_t capacity) {{
+    global_arena.buffer = (uint8_t*)malloc(capacity);
+    global_arena.offset = 0;
+    global_arena.capacity = capacity;
+}}
+
+void* syl_alloc(size_t size) {{
+    if (global_arena.offset + size > global_arena.capacity) {{
+        fprintf(stderr, "[ HELIX FATAL ] Arena Out of Memory.\n");
+        exit(1);
+    }}
+    void* ptr = global_arena.buffer + global_arena.offset;
+    global_arena.offset += size;
+    return ptr;
+}}
+
+char* syl_strdup(const char* s) {{
+    if (!s) return "";
+    size_t len = strlen(s);
+    char* d = (char*)syl_alloc(len + 1);
+    if (d) {{
+        memcpy(d, s, len + 1);
+    }}
+    return d;
+}}
+
+int ends_with(char* str, char* suffix) {{
+    if (!str || !suffix) return 0;
+    size_t lenstr = strlen(str);
+    size_t lensuffix = strlen(suffix);
+    if (lensuffix > lenstr) return 0;
+    return strncmp(str + lenstr - lensuffix, suffix, lensuffix) == 0;
+}}
+
+typedef struct {{
+    String* keys;
+    String* values;
+    int count;
+    int capacity;
+}} Dictionary;
+
+Dictionary syl_dict_create() {{
+    Dictionary d;
+    d.capacity = 128;
+    d.count = 0;
+    d.keys = (String*)syl_alloc(sizeof(String) * d.capacity);
+    d.values = (String*)syl_alloc(sizeof(String) * d.capacity);
+    return d;
+}}
+
+void syl_dict_set(Dictionary* d, String key, String value) {{
+    for (int i = 0; i < d->count; i++) {{
+        if (strcmp(d->keys[i], key) == 0) {{
+            d->values[i] = value;
+            return;
+        }}
+    }}
+    if (d->count >= d->capacity) return;
+    d->keys[d->count] = key;
+    d->values[d->count] = value;
+    d->count++;
+}}
+
+String syl_dict_get(Dictionary d, String key) {{
+    for (int i = 0; i < d.count; i++) {{
+        if (strcmp(d.keys[i], key) == 0) {{
+            return d.values[i];
+        }}
+    }}
+    return "";
+}}
+
+String syl_json_from_dict(Dictionary d) {{
+    char* buffer = (char*)syl_alloc(8192);
+    strcpy(buffer, "{{");
+    for (int i = 0; i < d.count; i++) {{
+        strcat(buffer, "\"");
+        strcat(buffer, d.keys[i]);
+        strcat(buffer, "\": \"");
+        strcat(buffer, d.values[i]);
+        strcat(buffer, "\"");
+        if (i < d.count - 1) strcat(buffer, ", ");
+    }}
+    strcat(buffer, "}}");
+    return buffer;
+}}
+
+Dictionary syl_dict_from_json(String j) {{
+    Dictionary d = syl_dict_create();
+    char* copy = strdup(j); // Use system strdup for scratch
+    char* p = copy;
+    while (*p) {{
+        if (*p == '"') {{
+            p++;
+            char* key = p;
+            while (*p && *p != '"') p++;
+            if (*p) {{ *p = 0; p++; }}
+            while (*p && (*p == ':' || *p == ' ' || *p == '"')) p++;
+            char* val = p;
+            while (*p && *p != '"') p++;
+            if (*p) {{ *p = 0; p++; }}
+            syl_dict_set(&d, syl_strdup(key), syl_strdup(val));
+        }} else p++;
+    }}
+    free(copy);
+    return d;
+}}
+"#, sqlite_include, net_include, sqlite_typedef, sqlite_funcs, net_typedefs, net_funcs);
+        preamble
     }
 
     fn indent(&self) -> String {
@@ -216,6 +270,12 @@ String _syl_current_path;
     fn push_line(&mut self, line: &str) {
         let ind = self.indent();
         self.c_code.push_str(&format!("{}{}\n", ind, line));
+    }
+
+    pub fn generate_preamble(&mut self, ast: &[Statement]) {
+        let use_sqlite = has_db_usage(ast);
+        let use_net = has_net_usage(ast);
+        self.c_code = self.get_preamble(use_sqlite, use_net);
     }
 
     pub fn generate(&mut self, ast: &[Statement]) {
@@ -531,6 +591,16 @@ String _syl_current_path;
                 self.indent_level -= 1;
                 self.push_line("}");
             }
+            Statement::While { condition, body } => {
+                let cond_str = self.gen_expr(condition);
+                self.push_line(&format!("while ({}) {{", cond_str));
+                self.indent_level += 1;
+                for b in body {
+                    self.gen_statement(b);
+                }
+                self.indent_level -= 1;
+                self.push_line("}");
+            }
             Statement::IfKeyPressed { key, body } => {
                 let key_const = format!("KEY_{}", key.to_uppercase());
                 self.push_line(&format!("if (IsKeyPressed({})) {{", key_const));
@@ -720,7 +790,59 @@ String _syl_current_path;
             Statement::WaitForKeyPress { var } => {
                 self.var_types.insert(var.clone(), "String".to_string());
                 self.push_line(&format!("String {} = \"\";", var));
-                self.push_line(&format!("{{ char c = getchar(); char buf[2] = {{c, 0}}; {} = syl_strdup(buf); }}", var));
+                self.push_line(&format!("#ifdef _WIN32"));
+                self.push_line(&format!("if (_kbhit()) {{"));
+                self.push_line(&format!("    int c = _getch();"));
+                self.push_line(&format!("    if (c == 224 || c == 0) {{"));
+                self.push_line(&format!("        c = _getch();"));
+                self.push_line(&format!("        if (c == 72) {} = \"w\";", var));
+                self.push_line(&format!("        else if (c == 80) {} = \"s\";", var));
+                self.push_line(&format!("        else if (c == 75) {} = \"a\";", var));
+                self.push_line(&format!("        else if (c == 77) {} = \"d\";", var));
+                self.push_line(&format!("    }} else {{"));
+                self.push_line(&format!("        char buf[2] = {{c, 0}};"));
+                self.push_line(&format!("        {} = syl_strdup(buf);", var));
+                self.push_line(&format!("    }}"));
+                self.push_line(&format!("}}"));
+                self.push_line(&format!("#else"));
+                self.push_line(&format!("{{"));
+                self.push_line(&format!("    struct termios oldt, newt;"));
+                self.push_line(&format!("    tcgetattr(STDIN_FILENO, &oldt);"));
+                self.push_line(&format!("    newt = oldt;"));
+                self.push_line(&format!("    newt.c_lflag &= ~(ICANON | ECHO);"));
+                self.push_line(&format!("    tcsetattr(STDIN_FILENO, TCSANOW, &newt);"));
+                self.push_line(&format!("    struct timeval tv = {{0, 0}};"));
+                self.push_line(&format!("    fd_set fds;"));
+                self.push_line(&format!("    FD_ZERO(&fds);"));
+                self.push_line(&format!("    FD_SET(STDIN_FILENO, &fds);"));
+                self.push_line(&format!("    int has_data = select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv);"));
+                self.push_line(&format!("    if (has_data > 0) {{"));
+                self.push_line(&format!("        int c = getchar();"));
+                self.push_line(&format!("        if (c == 27) {{"));
+                self.push_line(&format!("            FD_ZERO(&fds);"));
+                self.push_line(&format!("            FD_SET(STDIN_FILENO, &fds);"));
+                self.push_line(&format!("            if (select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv) > 0) {{"));
+                self.push_line(&format!("                int c2 = getchar();"));
+                self.push_line(&format!("                if (c2 == '[') {{"));
+                self.push_line(&format!("                    FD_ZERO(&fds);"));
+                self.push_line(&format!("                    FD_SET(STDIN_FILENO, &fds);"));
+                self.push_line(&format!("                    if (select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv) > 0) {{"));
+                self.push_line(&format!("                        int c3 = getchar();"));
+                self.push_line(&format!("                        if (c3 == 'A') {} = \"w\";", var));
+                self.push_line(&format!("                        else if (c3 == 'B') {} = \"s\";", var));
+                self.push_line(&format!("                        else if (c3 == 'D') {} = \"a\";", var));
+                self.push_line(&format!("                        else if (c3 == 'C') {} = \"d\";", var));
+                self.push_line(&format!("                    }}"));
+                self.push_line(&format!("                }}"));
+                self.push_line(&format!("            }}"));
+                self.push_line(&format!("        }} else {{"));
+                self.push_line(&format!("            char buf[2] = {{c, 0}};"));
+                self.push_line(&format!("            {} = syl_strdup(buf);", var));
+                self.push_line(&format!("        }}"));
+                self.push_line(&format!("    }}"));
+                self.push_line(&format!("    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);"));
+                self.push_line(&format!("}}"));
+                self.push_line(&format!("#endif"));
             }
             Statement::SleepMilliseconds { duration } => {
                 let dur = self.gen_expr(duration);
@@ -730,10 +852,51 @@ String _syl_current_path;
                 self.push_line(&format!("usleep((useconds_t)(({}) * 1000));", dur));
                 self.push_line(&format!("#endif"));
             }
+            Statement::PrintColored { text, color } => {
+                let text_val = self.gen_expr(text);
+                let color_code = match color.as_str() {
+                    "red" => "\\x1b[31m",
+                    "green" => "\\x1b[32m",
+                    "yellow" => "\\x1b[33m",
+                    "blue" => "\\x1b[34m",
+                    "magenta" => "\\x1b[35m",
+                    "cyan" => "\\x1b[36m",
+                    "white" => "\\x1b[37m",
+                    _ => "\\x1b[0m",
+                };
+                self.push_line(&format!("printf(\"{color_code}%s\\x1b[0m\\n\", {text_val});"));
+            }
+            Statement::MoveCursor { x, y } => {
+                let x_val = self.gen_expr(x);
+                let y_val = self.gen_expr(y);
+                // ANSI cursor positioning is 1-indexed (Row;Column) so (Y;X)
+                self.push_line(&format!("printf(\"\\x1B[%d;%dH\", (int)({}) + 1, (int)({}) + 1);", y_val, x_val));
+            }
+            Statement::DrawTerminalBox { x, y, w, h } => {
+                let x_val = self.gen_expr(x);
+                let y_val = self.gen_expr(y);
+                let w_val = self.gen_expr(w);
+                let h_val = self.gen_expr(h);
+                self.push_line(&format!("{{ int _bx = {}; int _by = {}; int _bw = {}; int _bh = {};", x_val, y_val, w_val, h_val));
+                // Top border
+                self.push_line("printf(\"\\x1B[%d;%dH┌\", _by + 1, _bx + 1);");
+                self.push_line("for(int i=1; i<_bw-1; i++) printf(\"─\");");
+                self.push_line("printf(\"┐\\n\");");
+                // Sides
+                self.push_line("for(int i=1; i<_bh-1; i++) {");
+                self.push_line("  printf(\"\\x1B[%d;%dH│\", _by + 1 + i, _bx + 1);");
+                self.push_line("  printf(\"\\x1B[%d;%dH│\", _by + 1 + i, _bx + _bw);");
+                self.push_line("}");
+                // Bottom border
+                self.push_line("printf(\"\\x1B[%d;%dH└\", _by + _bh, _bx + 1);");
+                self.push_line("for(int i=1; i<_bw-1; i++) printf(\"─\");");
+                self.push_line("printf(\"┘\\n\"); }");
+            }
             _ => {
                 self.push_line("// Unimplemented statement transpilation");
             }
         }
+
 
     }
 
@@ -786,6 +949,8 @@ String _syl_current_path;
                     BinOp::Neq => "!=",
                     BinOp::Lte => "<=",
                     BinOp::Gte => ">=",
+                    BinOp::And => "&&",
+                    BinOp::Or  => "||",
                 };
                 format!("({} {} {})", l, op_str, r)
             }
@@ -809,5 +974,61 @@ String _syl_current_path;
             Expr::CurrentDate => "syl_date_now()".to_string(),
         }
     }
+}
+
+fn has_db_usage(ast: &[Statement]) -> bool {
+    for stmt in ast {
+        match stmt {
+            Statement::ConnectDB { .. } | Statement::ExecuteQuery { .. } => return true,
+            Statement::DefineAction { body, .. } => {
+                if has_db_usage(body) { return true; }
+            }
+            Statement::While { body, .. } | Statement::WhileNot { body, .. } => {
+                if has_db_usage(body) { return true; }
+            }
+            Statement::Repeat { body, .. } | Statement::ForEach { body, .. } => {
+                if has_db_usage(body) { return true; }
+            }
+            Statement::IfExpr { then_branch, else_branch, .. } => {
+                if has_db_usage(then_branch) { return true; }
+                if let Some(else_b) = else_branch {
+                    if has_db_usage(else_b) { return true; }
+                }
+            }
+            Statement::IfEndsWith { body, .. } | Statement::IfKeyPressed { body, .. } => {
+                if has_db_usage(body) { return true; }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+fn has_net_usage(ast: &[Statement]) -> bool {
+    for stmt in ast {
+        match stmt {
+            Statement::HttpRequestRoute { .. } => return true,
+            Statement::DefineAction { body, .. } => {
+                if has_net_usage(body) { return true; }
+            }
+            Statement::While { body, .. } | Statement::WhileNot { body, .. } => {
+                if has_net_usage(body) { return true; }
+            }
+            Statement::Repeat { body, .. } | Statement::ForEach { body, .. } => {
+                if has_net_usage(body) { return true; }
+            }
+            Statement::IfExpr { then_branch, else_branch, .. } => {
+                if has_net_usage(then_branch) { return true; }
+                if let Some(else_b) = else_branch {
+                    if has_net_usage(else_b) { return true; }
+                }
+            }
+            Statement::IfEndsWith { body, .. } | Statement::IfKeyPressed { body, .. } => {
+                if has_net_usage(body) { return true; }
+            }
+            _ => {}
+        }
+    }
+    false
 }
 

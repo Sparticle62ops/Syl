@@ -454,6 +454,20 @@ impl<'a> Parser<'a> {
             }
         }
         let value = self.parse_expr()?;
+        
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "colored" {
+                self.advance();
+                let color_tok = self.advance().cloned();
+                let color = match color_tok {
+                    Some(Token::StringLit(c)) => c,
+                    _ => return Err(self.error_msg("Expected string color name after 'colored'")),
+                };
+                self.expect_punct('.')?;
+                return Ok(Statement::PrintColored { text: value, color });
+            }
+        }
+        
         self.expect_punct('.')?;
         Ok(Statement::Print { value })
     }
@@ -523,6 +537,17 @@ impl<'a> Parser<'a> {
 
     fn parse_move(&mut self) -> Result<Statement, String> {
         self.expect_word("move")?;
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "cursor" {
+                self.advance();
+                self.expect_word("to")?;
+                let x = self.parse_expr()?;
+                self.expect_punct(',')?;
+                let y = self.parse_expr()?;
+                self.expect_punct('.')?;
+                return Ok(Statement::MoveCursor { x, y });
+            }
+        }
         let path = self.parse_expr()?;
         self.expect_word("to")?;
         let destination = self.parse_expr()?;
@@ -630,19 +655,12 @@ impl<'a> Parser<'a> {
     fn parse_repeat_while(&mut self) -> Result<Statement, String> {
         self.expect_word("repeat")?;
         self.expect_word("while")?;
-        if let Some(Token::Word(w)) = self.peek() {
-            if w == "a" || w == "an" || w == "the" {
-                self.advance();
-            }
-        }
-        self.expect_word("window")?;
-        self.expect_word("is")?;
-        self.expect_word("not")?;
-        self.expect_word("closing")?;
+        let condition = self.parse_conditional_expr()?;
         self.expect_punct(':')?;
         let body = self.parse_block()?;
-        Ok(Statement::WhileNot { condition_action: "ui_WindowShouldClose".into(), body })
+        Ok(Statement::While { condition, body })
     }
+
 
     fn parse_begin_drawing(&mut self) -> Result<Statement, String> {
         self.expect_word("begin")?;
@@ -677,6 +695,22 @@ impl<'a> Parser<'a> {
     fn parse_draw(&mut self) -> Result<Statement, String> {
         self.expect_word("draw")?;
         match self.peek() {
+            Some(Token::Word(w)) if w == "terminal" => {
+                self.advance();
+                self.expect_word("box")?;
+                self.expect_word("at")?;
+                let x = self.parse_expr()?;
+                self.expect_punct(',')?;
+                let y = self.parse_expr()?;
+                self.expect_word("with")?;
+                self.expect_word("width")?;
+                let w = self.parse_expr()?;
+                self.expect_word("and")?;
+                self.expect_word("height")?;
+                let h = self.parse_expr()?;
+                self.expect_punct('.')?;
+                Ok(Statement::DrawTerminalBox { x, y, w, h })
+            }
             Some(Token::Word(w)) if w == "circle" => self.parse_draw_circle(),
             Some(Token::Word(w)) if w == "rectangle" => self.parse_draw_rectangle(),
             _ => self.parse_draw_text_no_keyword(),
@@ -842,7 +876,7 @@ impl<'a> Parser<'a> {
 
         // v1.4: If (math_expr): — expression-based conditional
         if let Some(Token::LParen) = self.peek() {
-            let condition = self.parse_expr()?;
+            let condition = self.parse_conditional_expr()?;
             self.expect_punct(':')?;
             let then_branch = self.parse_block()?;
             let mut else_branch = None;
@@ -1103,10 +1137,54 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
+    fn parse_conditional_expr(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_expr()?;
+        loop {
+            if let Some(Token::Word(w)) = self.peek() {
+                match w.as_str() {
+                    "and" => {
+                        self.advance();
+                        let right = self.parse_expr()?;
+                        left = Expr::BinaryOp { op: BinOp::And, left: Box::new(left), right: Box::new(right) };
+                    }
+                    "or" => {
+                        self.advance();
+                        let right = self.parse_expr()?;
+                        left = Expr::BinaryOp { op: BinOp::Or, left: Box::new(left), right: Box::new(right) };
+                    }
+                    "is" => {
+                        self.advance();
+                        let right = self.parse_expr()?;
+                        left = Expr::BinaryOp { op: BinOp::Eq, left: Box::new(left), right: Box::new(right) };
+                    }
+                    _ => break,
+                }
+            } else {
+                break;
+            }
+        }
+        Ok(left)
+    }
+
     // ── Math Block: Precedence-Climbing Expression Parser ──
     // Entered when we see `(` — parses full math with +, -, *, /, <, >, ==, etc.
     fn parse_math_expr(&mut self) -> Result<Expr, String> {
-        self.parse_math_comparison()
+        self.parse_math_logical()
+    }
+
+    fn parse_math_logical(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_math_comparison()?;
+        loop {
+            let op = match self.peek() {
+                Some(Token::Word(w)) if w == "and" => BinOp::And,
+                Some(Token::Word(w)) if w == "or" => BinOp::Or,
+                _ => break,
+            };
+            self.advance();
+            let right = self.parse_math_comparison()?;
+            left = Expr::BinaryOp { op, left: Box::new(left), right: Box::new(right) };
+        }
+        Ok(left)
     }
 
     fn parse_math_comparison(&mut self) -> Result<Expr, String> {

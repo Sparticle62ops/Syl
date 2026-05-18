@@ -196,6 +196,10 @@ impl IRGenerator {
                 self.emit('R', 'O', 0, 0);
                 self.generate(body);
             }
+            Statement::While { body, .. } => {
+                self.emit('R', 'O', 0, 0);
+                self.generate(body);
+            }
             Statement::IfKeyPressed { key, body } => {
                 let reg = self.get_reg(key);
                 self.emit('I', 'O', reg, 0);

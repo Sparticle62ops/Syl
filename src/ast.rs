@@ -38,6 +38,8 @@ pub enum BinOp {
     Neq,
     Lte,
     Gte,
+    And,
+    Or,
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +75,8 @@ pub enum Statement {
     ForEach { item: String, collection: String, body: Vec<Statement> },
     Repeat { times: Expr, body: Vec<Statement> },
     WhileNot { condition_action: String, body: Vec<Statement> },
+    While { condition: Expr, body: Vec<Statement> },
+
     IfEndsWith { filename: String, extension: String, body: Vec<Statement> },
 
     Import { filename: String, alias: String, body: Vec<Statement> },
@@ -126,6 +130,10 @@ pub enum Statement {
     ClearTerminal,
     WaitForKeyPress { var: String },
     SleepMilliseconds { duration: Expr },
+    // v2.1 Terminal Graphics
+    PrintColored { text: Expr, color: String },
+    DrawTerminalBox { x: Expr, y: Expr, w: Expr, h: Expr },
+    MoveCursor { x: Expr, y: Expr },
 }
 
 

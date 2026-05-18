@@ -83,8 +83,52 @@ fn main() {
         return;
     }
     
+    if command == "watch" {
+        println!("{}[ \u{1F9EC} LIVE ENGINE ]{} Watching {} for changes...", ANSI_BOLD_CYAN, ANSI_RESET, filename);
+        let mut last_modified = fs::metadata(filename).unwrap().modified().unwrap();
+        let mut child: Option<std::process::Child> = None;
+        let file_path = Path::new(filename);
+        let file_stem = file_path.file_stem().unwrap().to_str().unwrap();
+        let exe_filename = format!("{}.exe", file_stem);
+
+        let mut compile_and_run = |child: &mut Option<std::process::Child>| {
+            if let Some(mut c) = child.take() {
+                let _ = c.kill();
+                let _ = c.wait(); // prevent zombie
+            }
+            println!("{}[ \u{1F9EC} LIVE ENGINE ]{} Recompiling...", ANSI_BOLD_CYAN, ANSI_RESET);
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("build")
+                .arg(filename)
+                .status()
+                .expect("Failed to execute syl build");
+                
+            if status.success() {
+                let spawn_res = std::process::Command::new(format!("./{}", exe_filename)).spawn();
+                if let Ok(c) = spawn_res {
+                    *child = Some(c);
+                }
+            }
+        };
+
+        compile_and_run(&mut child);
+
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if let Ok(meta) = fs::metadata(filename) {
+                if let Ok(modified) = meta.modified() {
+                    if modified > last_modified {
+                        last_modified = modified;
+                        compile_and_run(&mut child);
+                    }
+                }
+            }
+        }
+    }
+    
     if command == "get" {
         let mut url = filename.to_string();
+
         if url.starts_with("HLX-") {
             url = url.replace("HLX-", "https://transfer.sh/");
         }
@@ -153,10 +197,12 @@ fn main() {
         
         let mut md = format!("# API Reference: {}\n\n", file_stem);
         
-        fn walk_docs(stmts: &[crate::ast::Statement], md: &mut String) {
+        let mut tui_features = Vec::new();
+        
+        fn walk_docs(stmts: &[crate::ast::Statement], md: &mut String, tui_features: &mut Vec<String>) {
             for stmt in stmts {
                 match stmt {
-                    crate::ast::Statement::DefineAction { name, args, doc, .. } => {
+                    crate::ast::Statement::DefineAction { name, args, doc, body } => {
                         md.push_str(&format!("## Action: `{}`\n", name));
                         if !args.is_empty() {
                             md.push_str(&format!("- **Arguments**: {}\n", args.join(", ")));
@@ -166,6 +212,7 @@ fn main() {
                         } else {
                             md.push_str("\n*No description provided.*\n\n");
                         }
+                        walk_docs(body, md, tui_features);
                     }
                     crate::ast::Statement::DefineEntity { name, fields, doc } => {
                         md.push_str(&format!("## Entity: `{}`\n", name));
@@ -180,14 +227,58 @@ fn main() {
                         }
                     }
                     crate::ast::Statement::Import { body, .. } => {
-                        walk_docs(body, md);
+                        walk_docs(body, md, tui_features);
+                    }
+                    crate::ast::Statement::While { body, .. } | crate::ast::Statement::WhileNot { body, .. } => {
+                        walk_docs(body, md, tui_features);
+                    }
+                    crate::ast::Statement::Repeat { body, .. } | crate::ast::Statement::ForEach { body, .. } => {
+                        walk_docs(body, md, tui_features);
+                    }
+                    crate::ast::Statement::IfExpr { then_branch, else_branch, .. } => {
+                        walk_docs(then_branch, md, tui_features);
+                        if let Some(else_b) = else_branch {
+                            walk_docs(else_b, md, tui_features);
+                        }
+                    }
+                    crate::ast::Statement::IfEndsWith { body, .. } | crate::ast::Statement::IfKeyPressed { body, .. } => {
+                        walk_docs(body, md, tui_features);
+                    }
+                    crate::ast::Statement::ClearTerminal => {
+                        tui_features.push("- **Clear Terminal**: Clears the console window and resets cursor position.".to_string());
+                    }
+                    crate::ast::Statement::WaitForKeyPress { var } => {
+                        tui_features.push(format!("- **Wait for Key Press**: Non-blocking FFI keyboard reading mapped to `{}`.", var));
+                    }
+                    crate::ast::Statement::SleepMilliseconds { .. } => {
+                        tui_features.push("- **Sleep/Delay**: Low-latency thread sleep in milliseconds.".to_string());
+                    }
+                    crate::ast::Statement::PrintColored { .. } => {
+                        tui_features.push("- **Print Colored**: Prints styled ANSI color streams to stdout.".to_string());
+                    }
+                    crate::ast::Statement::DrawTerminalBox { .. } => {
+                        tui_features.push("- **Draw Terminal Box**: Renders a styled ANSI bounding box pane.".to_string());
+                    }
+                    crate::ast::Statement::MoveCursor { .. } => {
+                        tui_features.push("- **Move Cursor**: Sets cursor coordinates directly for grid redrawing.".to_string());
                     }
                     _ => {}
                 }
             }
         }
         
-        walk_docs(&ast, &mut md);
+        walk_docs(&ast, &mut md, &mut tui_features);
+
+        if !tui_features.is_empty() {
+            tui_features.sort();
+            tui_features.dedup();
+            md.push_str("## Terminal UI / Graphics Lexicon Used\n");
+            md.push_str("This script integrates raw Helix terminal graphics primitives:\n\n");
+            for feat in tui_features {
+                md.push_str(&format!("{}\n", feat));
+            }
+            md.push_str("\n");
+        }
         
         let doc_filename = docs_dir.join(format!("{}.md", file_stem));
         fs::write(&doc_filename, md).unwrap();
@@ -268,9 +359,14 @@ fn main() {
 
     sort_ast(&ast, &mut globals, &mut main_stmts);
 
-    // Generate globals
-    codegen.generate(&globals);
+    // Generate preamble
+    codegen.generate_preamble(&ast);
     let mut c_final = codegen.c_code.clone();
+
+    // Generate globals
+    codegen.c_code = "".to_string();
+    codegen.generate(&globals);
+    c_final.push_str(&codegen.c_code);
     
     // Add HTTP dispatch function
     c_final.push_str("\nvoid syl_http_dispatch(String path, SOCKET client) {\n");
@@ -294,16 +390,24 @@ fn main() {
     if command == "run" || command == "test" || command == "build" {
         let is_build_only = command == "build";
         println!("[ HELIX ] BUILDING: Compiling with TCC...");
-        let tcc_path = "tools/tcc/tcc/tcc.exe";
+        let tcc_path = find_tcc();
         let exe_filename = format!("{}.exe", file_stem);
         
-        let mut tcc_args = vec![&c_filename, "raylib.dll", "ws2_32.dll", "sqlite3.dll", "-I.", "-L.", "-o", &exe_filename];
+        let mut tcc_args = vec![&c_filename, "raylib.dll"];
+        if codegen.use_net {
+            tcc_args.push("ws2_32.dll");
+        }
+        if codegen.use_sqlite {
+            tcc_args.push("sqlite3.dll");
+        }
+        tcc_args.extend_from_slice(&["-I.", "-L.", "-o", &exe_filename]);
+
         if is_release {
             println!("[ HELIX ] OPTIMIZING: Enabling -O3 production flags.");
             tcc_args.push("-O3");
         }
 
-        let status = std::process::Command::new(tcc_path)
+        let status = std::process::Command::new(&tcc_path)
             .args(&tcc_args)
             .status();
 
@@ -323,4 +427,45 @@ fn main() {
     } else {
         println!("[ HELIX ] SUCCESS: Production binary ready at ./{}", file_stem);
     }
+}
+
+fn find_tcc() -> String {
+    // 1. Check current_exe() relative path
+    if let Ok(mut exe_dir) = std::env::current_exe() {
+        exe_dir.pop(); // remove exe name
+        // Check if tcc is in the same dir as the compiler
+        let local_tcc = exe_dir.join("tcc.exe");
+        if local_tcc.exists() {
+            return local_tcc.to_string_lossy().to_string();
+        }
+        // Check relative tools/tcc/tcc/tcc.exe
+        // Let's traverse up to 5 directories to find it in the workspace
+        let mut check_dir = exe_dir.clone();
+        for _ in 0..6 {
+            let possible = check_dir.join("tools/tcc/tcc/tcc.exe");
+            if possible.exists() {
+                return possible.to_string_lossy().to_string();
+            }
+            if !check_dir.pop() {
+                break;
+            }
+        }
+    }
+
+    // 2. Check if TCC is in PATH
+    if let Some(paths) = std::env::var_os("PATH") {
+        for path in std::env::split_paths(&paths) {
+            let p_tcc = path.join("tcc.exe");
+            if p_tcc.exists() {
+                return p_tcc.to_string_lossy().to_string();
+            }
+            let p_tcc_unix = path.join("tcc");
+            if p_tcc_unix.exists() {
+                return p_tcc_unix.to_string_lossy().to_string();
+            }
+        }
+    }
+    
+    // 3. Fallback to hardcoded CWD path
+    "tools/tcc/tcc/tcc.exe".to_string()
 }
