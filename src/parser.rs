@@ -151,6 +151,7 @@ impl<'a> Parser<'a> {
                     "please" | "now" | "the" | "a" | "an" => { self.advance(); return self.parse_statement(); }
                     "bring" => self.parse_bring(),
                     "define" => self.parse_define(),
+                    "trigger" => self.parse_trigger(),
                     "enforce" => self.parse_enforce(),
                     "set" => self.parse_set(),
                     "check" => self.parse_check(),
@@ -188,7 +189,7 @@ impl<'a> Parser<'a> {
                     _ => Err(self.error_msg(&format!("I don't understand the statement starting with '{}'. Check your spelling or keyword.", w))),
                 }
             }
-            other => Err(self.error_msg(&format!("Expected a statement, but found {:?}.", other))),
+            other => { println!("ERROR AT POS: {}", self.pos); return Err(self.error_msg(&format!("Expected a statement, but found {:?}.", other))); }
         }
     }
     // Bring in "auth.syl" as auth.
@@ -309,6 +310,7 @@ impl<'a> Parser<'a> {
         
         match self.peek() {
             Some(Token::Word(w)) if w == "entity" => self.parse_define_entity(),
+            Some(Token::Word(w)) if w == "behavior" => self.parse_define_behavior(),
             _ => self.parse_define_action(),
         }
     }
@@ -404,6 +406,7 @@ impl<'a> Parser<'a> {
         match left {
             Expr::Identifier(name) => Ok(Statement::Assign { name, value }),
             Expr::GetField { field_name, entity_instance } => Ok(Statement::SetField { field_name, entity_instance, value }),
+            Expr::SelfField { field_name } => Ok(Statement::SetField { field_name, entity_instance: "self".to_string(), value }),
             other => Err(self.error_msg(&format!("I understood you are trying to Set something, but {:?} is not something I can assign a value to.", other))),
         }
     }
@@ -623,6 +626,59 @@ impl<'a> Parser<'a> {
         Ok(Statement::DefineAction { name, args, body, doc: self.last_comment.take() })
     }
 
+    fn parse_define_behavior(&mut self) -> Result<Statement, String> {
+        self.expect_word("behavior")?;
+        let action_name = self.expect_ident()?;
+        self.expect_word("for")?;
+        let entity_name = self.expect_ident()?;
+        
+        let mut args = Vec::new();
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "taking" {
+                self.advance();
+                args.push(self.expect_ident()?);
+                while let Some(Token::Word(w_and)) = self.peek() {
+                    if w_and == "and" {
+                        self.advance();
+                        args.push(self.expect_ident()?);
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+        
+        self.expect_punct(':')?;
+        let body = self.parse_block()?;
+        Ok(Statement::DefineBehavior { entity_name, action_name, args, body, doc: self.last_comment.take() })
+    }
+
+    fn parse_trigger(&mut self) -> Result<Statement, String> {
+        self.expect_word("trigger")?;
+        let action_name = self.expect_ident()?;
+        self.expect_word("on")?;
+        let instance = self.expect_ident()?;
+        
+        let mut args = Vec::new();
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "taking" {
+                self.advance();
+                args.push(self.parse_expr()?);
+                while let Some(Token::Word(w_and)) = self.peek() {
+                    if w_and == "and" {
+                        self.advance();
+                        args.push(self.parse_expr()?);
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+        
+        self.expect_punct('.')?;
+        Ok(Statement::TriggerBehavior { action_name, instance, args })
+    }
+
     fn parse_add_to_list(&mut self) -> Result<Statement, String> {
         self.expect_word("add")?;
         let item = self.parse_expr()?;
@@ -655,10 +711,50 @@ impl<'a> Parser<'a> {
     fn parse_repeat_while(&mut self) -> Result<Statement, String> {
         self.expect_word("repeat")?;
         self.expect_word("while")?;
-        let condition = self.parse_conditional_expr()?;
-        self.expect_punct(':')?;
-        let body = self.parse_block()?;
-        Ok(Statement::While { condition, body })
+        
+        let saved_pos = self.pos;
+        let mut is_window_not_closing = false;
+        
+        // Skip decorative 'the' if present
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "the" {
+                self.advance();
+            }
+        }
+        
+        if let Some(Token::Word(w2)) = self.peek() {
+            if w2 == "window" {
+                self.advance();
+                if let Some(Token::Word(w3)) = self.peek() {
+                    if w3 == "is" {
+                        self.advance();
+                        if let Some(Token::Word(w4)) = self.peek() {
+                            if w4 == "not" {
+                                self.advance();
+                                if let Some(Token::Word(w5)) = self.peek() {
+                                    if w5 == "closing" {
+                                        self.advance();
+                                        is_window_not_closing = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        if is_window_not_closing {
+            self.expect_punct(':')?;
+            let body = self.parse_block()?;
+            return Ok(Statement::WhileNot { condition_action: "WindowShouldClose".into(), body });
+        } else {
+            self.pos = saved_pos;
+            let condition = self.parse_conditional_expr()?;
+            self.expect_punct(':')?;
+            let body = self.parse_block()?;
+            return Ok(Statement::While { condition, body });
+        }
     }
 
 
@@ -1096,7 +1192,11 @@ impl<'a> Parser<'a> {
                             self.advance();
                             let instance = self.expect_ident()?;
                             if let Expr::Identifier(field) = left {
-                                left = Expr::GetField { field_name: field, entity_instance: instance };
+                                if instance == "self" {
+                                    left = Expr::SelfField { field_name: field };
+                                } else {
+                                    left = Expr::GetField { field_name: field, entity_instance: instance };
+                                }
                             } else {
                                 return Err(self.error_msg("I understood you are using 'of', but I was expecting a property name before it."));
                             }
@@ -1280,6 +1380,14 @@ impl<'a> Parser<'a> {
                                 }
                             }
                             return Ok(Expr::Call { action: w, args });
+                        } else if nw == "of" {
+                            self.advance(); // consume "of"
+                            let instance = self.expect_ident()?;
+                            if instance == "self" {
+                                return Ok(Expr::SelfField { field_name: w });
+                            } else {
+                                return Ok(Expr::GetField { field_name: w, entity_instance: instance });
+                            }
                         }
                     }
                     Ok(Expr::Identifier(w))

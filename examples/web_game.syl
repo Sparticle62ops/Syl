@@ -1,0 +1,203 @@
+Define an entity called Player:
+  Set x to 400.
+  Set y to 300.
+  Set hp to 100.
+
+Define an entity called Bullet:
+  Set x to 0.
+  Set y to 0.
+  Set dx to 0.
+  Set dy to 0.
+  Set active to 0.
+
+Define an entity called Enemy:
+  Set x to 100.
+  Set y to 100.
+  Set active to 1.
+
+Define behavior move_right for Player taking speed:
+  Set x of self to (x of self + speed).
+  If (x of self > 800):
+    Set x of self to 800.
+
+Define behavior move_left for Player taking speed:
+  Set x of self to (x of self - speed).
+  If (x of self < 0):
+    Set x of self to 0.
+
+Define behavior move_up for Player taking speed:
+  Set y of self to (y of self - speed).
+  If (y of self < 0):
+    Set y of self to 0.
+
+Define behavior move_down for Player taking speed:
+  Set y of self to (y of self + speed).
+  If (y of self > 600):
+    Set y of self to 600.
+
+Create Player called hero.
+Create Bullet called shot.
+Create Enemy called alien1.
+Create Enemy called alien2.
+
+Set score to 0.
+Set game_over to 0.
+Set facing_x to 0.
+Set facing_y to (0 - 1).
+
+Please open a window with width 800 and height 600 titled "Syl Endless Alien Shooter".
+
+Repeat while the window is not closing:
+    Begin drawing.
+    Clear the background to "black".
+
+    If game_over is 0:
+        Note: Handle input and move hero
+        If w key is pressed:
+            Trigger move_up on hero taking 5.
+            Set facing_x to 0.
+            Set facing_y to (0 - 1).
+        If s key is pressed:
+            Trigger move_down on hero taking 5.
+            Set facing_x to 0.
+            Set facing_y to 1.
+        If a key is pressed:
+            Trigger move_left on hero taking 5.
+            Set facing_x to (0 - 1).
+            Set facing_y to 0.
+        If d key is pressed:
+            Trigger move_right on hero taking 5.
+            Set facing_x to 1.
+            Set facing_y to 0.
+
+        Note: Shoot bullet
+        If space key is pressed:
+            If (active of shot == 0):
+                Set active of shot to 1.
+                Set x of shot to (x of hero).
+                Set y of shot to (y of hero).
+                Set dx of shot to (facing_x * 12).
+                Set dy of shot to (facing_y * 12).
+
+        Note: Update bullet
+        If (active of shot == 1):
+            Set x of shot to (x of shot + dx of shot).
+            Set y of shot to (y of shot + dy of shot).
+            If (x of shot < 0) or (x of shot > 800) or (y of shot < 0) or (y of shot > 600):
+                Set active of shot to 0.
+
+        Note: Update alien1 tracking player
+        If (active of alien1 == 1):
+            If (x of alien1 < x of hero):
+                Set x of alien1 to (x of alien1 + 2).
+            If (x of alien1 > x of hero):
+                Set x of alien1 to (x of alien1 - 2).
+            If (y of alien1 < y of hero):
+                Set y of alien1 to (y of alien1 + 2).
+            If (y of alien1 > y of hero):
+                Set y of alien1 to (y of alien1 - 2).
+
+        Note: Update alien2 tracking player
+        If (active of alien2 == 1):
+            If (x of alien2 < x of hero):
+                Set x of alien2 to (x of alien2 + 2).
+            If (x of alien2 > x of hero):
+                Set x of alien2 to (x of alien2 - 2).
+            If (y of alien2 < y of hero):
+                Set y of alien2 to (y of alien2 + 2).
+            If (y of alien2 > y of hero):
+                Set y of alien2 to (y of alien2 - 2).
+
+        Note: Bullet & Enemy1 collision
+        If (active of shot == 1) and (active of alien1 == 1):
+            Set diff1_x to (x of shot - x of alien1).
+            Set diff1_y to (y of shot - y of alien1).
+            If (diff1_x < 0):
+                Set diff1_x to (0 - diff1_x).
+            If (diff1_y < 0):
+                Set diff1_y to (0 - diff1_y).
+            If (diff1_x < 25) and (diff1_y < 25):
+                Set active of alien1 to 0.
+                Set active of shot to 0.
+                Set score to (score + 10).
+
+        Note: Bullet & Enemy2 collision
+        If (active of shot == 1) and (active of alien2 == 1):
+            Set diff2_x to (x of shot - x of alien2).
+            Set diff2_y to (y of shot - y of alien2).
+            If (diff2_x < 0):
+                Set diff2_x to (0 - diff2_x).
+            If (diff2_y < 0):
+                Set diff2_y to (0 - diff2_y).
+            If (diff2_x < 25) and (diff2_y < 25):
+                Set active of alien2 to 0.
+                Set active of shot to 0.
+                Set score to (score + 10).
+
+        Note: Respawn enemies if dead
+        If (active of alien1 == 0):
+            Set x of alien1 to a random number between 50 and 750.
+            Set y of alien1 to a random number between 50 and 150.
+            Set active of alien1 to 1.
+        If (active of alien2 == 0):
+            Set x of alien2 to a random number between 50 and 750.
+            Set y of alien2 to a random number between 450 and 550.
+            Set active of alien2 to 1.
+
+        Note: Enemy1 & Player collision
+        If (active of alien1 == 1):
+            Set p_diff1_x to (x of hero - x of alien1).
+            Set p_diff1_y to (y of hero - y of alien1).
+            If (p_diff1_x < 0):
+                Set p_diff1_x to (0 - p_diff1_x).
+            If (p_diff1_y < 0):
+                Set p_diff1_y to (0 - p_diff1_y).
+            If (p_diff1_x < 30) and (p_diff1_y < 30):
+                Set hp of hero to (hp of hero - 2).
+                If (hp of hero < 1):
+                    Set game_over to 1.
+
+        Note: Enemy2 & Player collision
+        If (active of alien2 == 1):
+            Set p_diff2_x to (x of hero - x of alien2).
+            Set p_diff2_y to (y of hero - y of alien2).
+            If (p_diff2_x < 0):
+                Set p_diff2_x to (0 - p_diff2_x).
+            If (p_diff2_y < 0):
+                Set p_diff2_y to (0 - p_diff2_y).
+            If (p_diff2_x < 30) and (p_diff2_y < 30):
+                Set hp of hero to (hp of hero - 2).
+                If (hp of hero < 1):
+                    Set game_over to 1.
+
+        Note: Draw gameplay
+        Draw circle at (x of hero), (y of hero) with radius 20 colored "green".
+        
+        If (active of shot == 1):
+            Draw circle at (x of shot), (y of shot) with radius 6 colored "yellow".
+            
+        If (active of alien1 == 1):
+            Draw circle at (x of alien1), (y of alien1) with radius 15 colored "red".
+            
+        If (active of alien2 == 1):
+            Draw circle at (x of alien2), (y of alien2) with radius 15 colored "red".
+
+        Draw text "SCORE: " joined with score at position 20, 20.
+        Draw text "HP: " joined with (hp of hero) at position 20, 50.
+        Draw text "Move with W/A/S/D - Shoot with SPACE" at position 20, 560.
+
+    If game_over is 1:
+        Draw text "GAME OVER" at position 300, 250.
+        Draw text "Final Score: " joined with score at position 300, 300.
+        Draw text "Press R to Restart" at position 300, 350.
+        If r key is pressed:
+            Set game_over to 0.
+            Set score to 0.
+            Set hp of hero to 100.
+            Set x of hero to 400.
+            Set y of hero to 300.
+            Set active of alien1 to 0.
+            Set active of alien2 to 0.
+            Set active of shot to 0.
+
+    End drawing.

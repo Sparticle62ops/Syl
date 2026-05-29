@@ -5,6 +5,7 @@ pub struct CodeGen {
     pub http_dispatch_code: String,
     indent_level: usize,
     pub var_types: std::collections::HashMap<String, String>,
+    pub entity_defs: std::collections::HashMap<String, Vec<(String, Expr)>>,
     pub use_sqlite: bool,
     pub use_net: bool,
 }
@@ -16,6 +17,7 @@ impl CodeGen {
             http_dispatch_code: "".to_string(),
             indent_level: 0,
             var_types: std::collections::HashMap::new(),
+            entity_defs: std::collections::HashMap::new(),
             use_sqlite: false,
             use_net: false,
         }
@@ -120,6 +122,9 @@ String _syl_current_path;
 #endif
 {}
 #include "raylib.h"
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 // Syl v0.1 C Transpiler Preamble
 typedef char* String;
@@ -132,7 +137,13 @@ char* syl_strdup(const char* s);
 {}
 {}
 double syl_time_now() {{
-    return (double)time(NULL);
+#ifdef _WIN32
+    return (double)GetTickCount();
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+#endif
 }}
 
 String syl_date_now() {{
@@ -585,9 +596,19 @@ Dictionary syl_dict_from_json(String j) {{
                 let c_cond = if condition_action.starts_with("ui_") { &condition_action[3..] } else { &condition_action };
                 self.push_line(&format!("while (!{}()) {{", c_cond));
                 self.indent_level += 1;
+                let is_game_loop = c_cond == "WindowShouldClose";
+                if is_game_loop {
+                    self.push_line("size_t _frame_arena_save = global_arena.offset;");
+                }
                 for b in body {
                     self.gen_statement(b);
                 }
+                if is_game_loop {
+                    self.push_line("global_arena.offset = _frame_arena_save;");
+                }
+                self.push_line("#ifdef __EMSCRIPTEN__");
+                self.push_line("    emscripten_sleep(16);");
+                self.push_line("#endif");
                 self.indent_level -= 1;
                 self.push_line("}");
             }
@@ -598,12 +619,40 @@ Dictionary syl_dict_from_json(String j) {{
                 for b in body {
                     self.gen_statement(b);
                 }
+                self.push_line("#ifdef __EMSCRIPTEN__");
+                self.push_line("    emscripten_sleep(16);");
+                self.push_line("#endif");
                 self.indent_level -= 1;
+                self.push_line("}");
+            }
+            Statement::IfElse { condition_var, condition_val, then_branch, else_branch } => {
+                let val_str = self.gen_expr(condition_val);
+                let var_type = self.var_types.get(condition_var).cloned().unwrap_or_else(|| {
+                    if let Expr::StringLit(_) = condition_val { "String".to_string() } else { "double".to_string() }
+                });
+                if var_type == "String" {
+                    self.push_line(&format!("if (strcmp({}, {}) == 0) {{", condition_var, val_str));
+                } else {
+                    self.push_line(&format!("if ({} == {}) {{", condition_var, val_str));
+                }
+                self.indent_level += 1;
+                for b in then_branch {
+                    self.gen_statement(b);
+                }
+                self.indent_level -= 1;
+                if let Some(elb) = else_branch {
+                    self.push_line("} else {");
+                    self.indent_level += 1;
+                    for b in elb {
+                        self.gen_statement(b);
+                    }
+                    self.indent_level -= 1;
+                }
                 self.push_line("}");
             }
             Statement::IfKeyPressed { key, body } => {
                 let key_const = format!("KEY_{}", key.to_uppercase());
-                self.push_line(&format!("if (IsKeyPressed({})) {{", key_const));
+                self.push_line(&format!("if (IsKeyDown({})) {{", key_const));
                 self.indent_level += 1;
                 for b in body {
                     self.gen_statement(b);
@@ -623,19 +672,62 @@ Dictionary syl_dict_from_json(String j) {{
                 }
                 self.indent_level -= 1;
                 self.push_line(&format!("}} {};", name));
+                self.entity_defs.insert(name.clone(), fields.clone());
             }
             Statement::CreateEntity { entity_type, name } => {
-                self.push_line(&format!("{} {} = {{0}};", entity_type, name));
+                self.var_types.insert(name.clone(), entity_type.clone());
+                if let Some(fields) = self.entity_defs.get(entity_type) {
+                    let mut inits = Vec::new();
+                    for (_, def_val) in fields {
+                        inits.push(self.gen_expr(def_val));
+                    }
+                    self.push_line(&format!("{} {} = {{{}}};", entity_type, name, inits.join(", ")));
+                } else {
+                    self.push_line(&format!("{} {} = {{0}};", entity_type, name));
+                }
             }
             Statement::SetField { field_name, entity_instance, value } => {
                 let val_str = self.gen_expr(value);
-                self.push_line(&format!("{}.{} = {};", entity_instance, field_name, val_str));
+                if entity_instance == "self" {
+                    self.push_line(&format!("{}->{} = {};", entity_instance, field_name, val_str));
+                } else {
+                    self.push_line(&format!("{}.{} = {};", entity_instance, field_name, val_str));
+                }
             }
             Statement::Download { url, target } => {
                 let url_str = self.gen_expr(url);
                 self.push_line(&format!("String {} = \"\"; // Download target", target));
                 self.push_line(&format!("{{ char cmd[1024]; sprintf(cmd, \"curl -s %s -o tmp_download.txt\", {}); system(cmd); }}", url_str));
                 self.push_line(&format!("// [ HELIX BORROWED ] {} tagged as temporary until verification.", target));
+            }
+            Statement::DefineBehavior { entity_name, action_name, args, body, .. } => {
+                let mut params = vec![format!("{}* self", entity_name)];
+                for a in args {
+                    params.push(format!("double {}", a));
+                }
+                let param_str = params.join(", ");
+                self.push_line(&format!("void {}_{}({}) {{", entity_name, action_name, param_str));
+                self.indent_level += 1;
+                self.push_line("size_t _arena_save = global_arena.offset;");
+                
+                for b in body {
+                    self.gen_statement(b);
+                }
+                
+                self.push_line("global_arena.offset = _arena_save;");
+                self.indent_level -= 1;
+                self.push_line("}");
+            }
+            Statement::TriggerBehavior { action_name, instance, args } => {
+                if let Some(entity_type) = self.var_types.get(instance) {
+                    let mut arg_strs = vec![format!("&{}", instance)];
+                    for a in args {
+                        arg_strs.push(self.gen_expr(a));
+                    }
+                    self.push_line(&format!("{}_{}({});", entity_type, action_name, arg_strs.join(", ")));
+                } else {
+                    self.push_line(&format!("// Error: Cannot determine entity type for instance {}", instance));
+                }
             }
             Statement::ListWords { source, identifier } => {
                 let src_str = self.gen_expr(source);
@@ -900,6 +992,31 @@ Dictionary syl_dict_from_json(String j) {{
 
     }
 
+    fn expr_is_string(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::StringLit(_) => true,
+            Expr::Join { .. } => true,
+            Expr::Identifier(name) => {
+                self.var_types.get(name.as_str()).map_or(false, |t| t == "String")
+            }
+            Expr::GetField { entity_instance, field_name } => {
+                // If the entity field is known to be string type, return true
+                let entity_type = self.var_types.get(entity_instance.as_str());
+                if let Some(etype) = entity_type {
+                    if let Some(defs) = self.entity_defs.get(etype.as_str()) {
+                        for (fname, fexpr) in defs {
+                            if fname == field_name {
+                                return matches!(fexpr, Expr::StringLit(_));
+                            }
+                        }
+                    }
+                }
+                false
+            }
+            _ => false,
+        }
+    }
+
     fn gen_expr(&self, expr: &Expr) -> String {
         match expr {
             Expr::StringLit(s) => format!("\"{}\"", s),
@@ -916,10 +1033,17 @@ Dictionary syl_dict_from_json(String j) {{
             Expr::GetField { field_name, entity_instance } => {
                 format!("{}.{}", entity_instance, field_name)
             }
+            Expr::SelfField { field_name } => {
+                format!("self->{}", field_name)
+            }
             Expr::Join { left, right } => {
                 let l = self.gen_expr(left);
                 let r = self.gen_expr(right);
-                format!("({{ char* res = syl_alloc(strlen({}) + strlen({}) + 1); strcpy(res, {}); strcat(res, {}); res; }})", l, r, l, r)
+                let l_is_str = self.expr_is_string(left);
+                let r_is_str = self.expr_is_string(right);
+                let l_safe = if l_is_str { l.clone() } else { format!("({{ char _nb[64]; snprintf(_nb, 64, \"%g\", (double)({})); syl_strdup(_nb); }})", l) };
+                let r_safe = if r_is_str { r.clone() } else { format!("({{ char _nb[64]; snprintf(_nb, 64, \"%g\", (double)({})); syl_strdup(_nb); }})", r) };
+                format!("({{ char* res = syl_alloc(strlen({}) + strlen({}) + 1); strcpy(res, {}); strcat(res, {}); res; }})", l_safe, r_safe, l_safe, r_safe)
             }
             Expr::Sqrt { value } => {
                 format!("sqrt({})", self.gen_expr(value))

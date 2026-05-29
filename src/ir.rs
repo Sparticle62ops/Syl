@@ -112,6 +112,15 @@ impl IRGenerator {
                 self.emit('D', 'O', reg, 0);
                 self.generate(body);
             }
+            Statement::DefineBehavior { action_name, body, .. } => {
+                let reg = self.get_reg(action_name);
+                self.emit('B', 'O', reg, 0);
+                self.generate(body);
+            }
+            Statement::TriggerBehavior { action_name, .. } => {
+                let reg = self.get_reg(action_name);
+                self.emit('T', 'O', reg, 0);
+            }
             Statement::ExportAction { action } => {
                 self.gen_statement(action);
                 self.emit('X', 'O', 0, 0);
@@ -280,6 +289,10 @@ impl IRGenerator {
             }
             Expr::GetField { entity_instance, .. } => {
                 let reg = self.get_reg(entity_instance);
+                self.emit('A', 'O', reg, target_reg);
+            }
+            Expr::SelfField { .. } => {
+                let reg = self.get_reg("self");
                 self.emit('A', 'O', reg, target_reg);
             }
             Expr::Join { left, right } => {

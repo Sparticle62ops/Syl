@@ -1,53 +1,131 @@
-# Syl Compiler [v1.0.0-GOLDEN]
+# Syl Programming Language [v2.5.0]
 
-**Syl** is a production-grade, naturalistic systems programming language. It maps deterministic English syntax to high-performance native machine code via the **Helix IR** and **Cranelift Native Pipeline**.
+**Syl** is a naturalistic systems programming language that compiles English-like syntax to native binaries via C transpilation. Write readable code, get real executables.
 
-## v1.0 "Golden" Milestones
+## Features
 
-- **Helix Guard 2.0:** Hardened memory safety with mandatory bounds checking for all dynamic list operations.
-- **Self-Hosting Capability:** The Syl language is now powerful enough to handle its own lexing and logic (see `examples/syl_lexer.syl`).
-- **Zero-Config Build System:** Automated project discovery via top-level metadata (`The project is named "..."`).
-- **Cranelift Native Pipeline:** Direct-to-binary compilation bypassing C-transpilation for security and speed.
-- **Enterprise Networking:** Native networking module (`net`) with automated parity-checked resource management.
+- **Natural English Syntax** — Write code that reads like prose: `Set score to 0.`, `If w key is pressed:`
+- **Graphical Games** — Built-in Raylib integration for windowed graphical applications
+- **Entity System** — Define entities with fields and behaviors for OOP-style programming
+- **Helix IR** — Intermediate representation for analysis and optimization
+- **C Transpilation** — Generates portable C code compiled via TCC
+- **Arena Memory** — Frame-based arena allocator with automatic per-frame resets
 
-## Getting Started
+## Quick Start
 
-### 1. Bootstrap the Studio
-Ensure all portable tools (TCC, Raylib, Zig) are ready:
+### 1. Install Dependencies
 ```powershell
-./launch_syl.ps1
+# Downloads TCC, Raylib, Git, and Rust toolchain
+powershell -ExecutionPolicy Bypass -File install_syl.ps1
 ```
 
-### 2. Build the Sentinel Pro (Hero App)
-The Sentinel Pro demonstrates v1.0 safety and the project manifest system:
+### 2. Build the Compiler
 ```powershell
-# Compiles to a production binary using the project metadata
-./syl.exe build sentinel.syl
+cargo build
 ```
 
-### 3. Verify Self-Hosting
-Run the Syl-in-Syl lexer to analyze the codebase:
+### 3. Compile & Run Examples
 ```powershell
-./syl.exe run syl_lexer.syl
+# Build the Snake game (graphical window)
+./target/debug/syl.exe build examples/snake.syl
+
+# Build the Endless Shooter game
+./target/debug/syl.exe build examples/web_game.syl
+
+# Build the Bouncing Ball physics sim
+./target/debug/syl.exe build examples/bouncing_ball.syl
+
+# Run the compiled game
+./snake.exe
 ```
 
-## Language Sample (v1.0)
+## Example Games
+
+### Snake (`examples/snake.syl`)
+Classic snake game with graphical window, score tracking, growing tail, and restart support. Controls: WASD to move, R to restart.
+
+### Endless Alien Shooter (`examples/web_game.syl`)
+Top-down shooter with player movement, bullet firing, enemy AI that tracks the player, collision detection, HP system, and score. Controls: WASD to move, SPACE to shoot, R to restart.
+
+### Bouncing Ball (`examples/bouncing_ball.syl`)
+Physics simulation with a bouncing ball and gravity.
+
+## Language Sample
 
 ```text
-The project is named "ArchiveUtility".
-The version is "1.0.0".
+Set score to 0.
+Set lives to 3.
 
-Bring in "sys" as sys.
+Please open a window with width 800 and height 600 titled "My Game".
 
-List files in "." as my_files.
-For each f in my_files:
-    Set file_size to the size of f.
-    If file_size is greater than 1000000:
-        Print f joined with " is too large.".
+Repeat while the window is not closing:
+    Begin drawing.
+    Clear the background to "black".
+    If w key is pressed:
+        Set player_y to (player_y - 5).
+    Draw circle at player_x, player_y with radius 20 colored "green".
+    Draw text "Score: " joined with score at position 10, 10.
+    End drawing.
 ```
 
-## Community & Security
-Syl is designed for environments where **security** and **readability** are paramount. The Helix Safety Guard enforces a strict borrow-checker logic at the IR level, ensuring zero memory leaks and zero buffer overflows.
+## Entity & Behavior System
+
+```text
+Define an entity called Player:
+    Set x to 400.
+    Set y to 300.
+    Set hp to 100.
+
+Define behavior move_right for Player taking speed:
+    Set x of self to (x of self + speed).
+
+Create Player called hero.
+Trigger move_right on hero taking 5.
+```
+
+## Architecture
+
+```
+source.syl → [Lexer] → [Parser] → [AST] → [Helix IR] → [C Codegen] → [TCC] → native .exe
+```
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| Lexer | `src/lexer.rs` | Tokenization with indentation tracking |
+| Parser | `src/parser.rs` | Recursive descent parser producing AST |
+| AST | `src/ast.rs` | Statement and expression types |
+| IR | `src/ir.rs` | Helix intermediate representation |
+| Codegen | `src/codegen.rs` | C code generation with Raylib bindings |
+| Main | `src/main.rs` | CLI, build pipeline, TCC invocation |
+
+## Project Structure
+
+```
+syl/
+├── src/                    # Compiler source (Rust)
+│   ├── main.rs             # CLI and build pipeline
+│   ├── lexer.rs            # Tokenizer
+│   ├── parser.rs           # Parser
+│   ├── ast.rs              # AST definitions
+│   ├── ir.rs               # Helix IR
+│   ├── codegen.rs          # C transpiler
+│   ├── tui.rs              # Terminal UI (Syl Studio)
+│   └── emit_native.rs      # Native emission helpers
+├── examples/               # Example .syl programs
+│   ├── snake.syl           # Graphical snake game
+│   ├── web_game.syl        # Endless alien shooter
+│   ├── bouncing_ball.syl   # Physics simulation
+│   ├── fibonacci.syl       # Fibonacci sequence
+│   └── ...
+├── docs/                   # Language documentation
+├── lib/                    # TCC compiler (portable)
+├── Cargo.toml              # Rust project manifest
+└── README.md
+```
+
+## License
+
+MIT
 
 ---
-*Syl v1.0.0 - The Golden Release*
+*Syl v2.5.0 — Natural Language, Native Performance*

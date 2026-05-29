@@ -60,10 +60,6 @@ impl Lexer {
         tokens
     }
 
-    fn peek_char(&self) -> Option<char> {
-        if self.pos < self.chars.len() { Some(self.chars[self.pos]) } else { None }
-    }
-
     fn next_token(&mut self) -> Option<Token> {
         if !self.pending_tokens.is_empty() {
             return Some(self.pending_tokens.remove(0));
@@ -85,7 +81,8 @@ impl Lexer {
             }
             
             // Skip empty lines
-            if self.pos < self.chars.len() && self.chars[self.pos] == '\n' {
+            if self.pos < self.chars.len() && (self.chars[self.pos] == '\n' || (self.chars[self.pos] == '\r' && self.pos + 1 < self.chars.len() && self.chars[self.pos + 1] == '\n')) {
+                if self.chars[self.pos] == '\r' { self.pos += 1; }
                 return self.next_token();
             }
 
@@ -213,7 +210,7 @@ impl Lexer {
             }
 
             let mut final_s = s.clone();
-            let keywords = ["wait", "sleep", "terminal", "box", "cursor", "milliseconds", "press", "connect", "database", "execute", "query", "current", "time", "date", "attempt", "fails", "succeeds", "json", "http", "request", "hits", "dictionary", "listen", "when", "reply", "verify", "set", "print", "give", "bring", "define", "enforce", "check", "run", "return", "when", "otherwise", "the", "a", "an", "to", "in", "as", "action", "called", "taking", "and", "that", "is", "not", "empty", "or", "crash", "with", "background", "it", "write", "read", "list", "files", "for", "each", "file", "if", "ends", "move", "create", "folder", "external", "from", "execute", "key", "pressed", "item", "make", "increase", "by", "space", "entity", "of", "download", "joined", "square", "root", "power", "random", "between", "size", "project", "named", "version", "target", "standalone", "executable", "delta", "time", "mouse", "draw", "rectangle", "circle", "at", "width", "height", "radius", "colored", "words", "repeat", "while", "begin", "clear", "end"];
+            let keywords = ["behavior", "trigger", "self", "on", "wait", "sleep", "terminal", "box", "cursor", "milliseconds", "press", "connect", "database", "execute", "query", "current", "time", "date", "attempt", "fails", "succeeds", "json", "http", "request", "hits", "dictionary", "listen", "when", "reply", "verify", "set", "print", "give", "bring", "define", "enforce", "check", "run", "return", "when", "otherwise", "the", "a", "an", "to", "in", "as", "action", "called", "taking", "and", "that", "is", "not", "empty", "or", "crash", "with", "background", "it", "write", "read", "list", "files", "for", "each", "file", "if", "ends", "move", "create", "folder", "external", "from", "execute", "key", "pressed", "item", "make", "increase", "by", "space", "entity", "of", "download", "joined", "square", "root", "power", "random", "between", "size", "project", "named", "version", "target", "standalone", "executable", "delta", "time", "mouse", "draw", "rectangle", "circle", "at", "width", "height", "radius", "colored", "words", "repeat", "while", "begin", "clear", "end"];
             for kw in &keywords {
                 if s.eq_ignore_ascii_case(kw) {
                     final_s = kw.to_string();

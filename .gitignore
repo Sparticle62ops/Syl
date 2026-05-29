@@ -1,10 +1,37 @@
+# Build artifacts
 /target/
+
+# Portable tools (downloaded separately)
 /tools/
+
+# Compiled binaries
 *.exe
-*.dll
-*.h
-*.lib
-*.obj
+
+# Generated intermediates
 *.hlx
-# Keep .c files if they are intentional samples, but ignore output.c
-output.c
+*.obj
+
+# Generated C transpiler output (root-level only)
+/*.c
+
+# Libraries (bundled, not tracked in git)
+*.dll
+*.lib
+*.a
+
+# Raylib header (bundled with install script)
+/raylib.h
+
+# Wasm build artifacts
+/raylib-wasm.zip
+/web_game_wasm/
+
+# Editor / IDE
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+.DS_Store

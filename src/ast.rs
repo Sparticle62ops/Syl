@@ -23,6 +23,8 @@ pub enum Expr {
     DictFromJson { json: Box<Expr> },
     CurrentTime,
     CurrentDate,
+    // v2.5: Self reference for behaviors
+    SelfField { field_name: String },
 }
 
 #[derive(Debug, Clone)]
@@ -134,6 +136,20 @@ pub enum Statement {
     PrintColored { text: Expr, color: String },
     DrawTerminalBox { x: Expr, y: Expr, w: Expr, h: Expr },
     MoveCursor { x: Expr, y: Expr },
+
+    // v2.5 Entity Behaviors
+    DefineBehavior {
+        entity_name: String,
+        action_name: String,
+        args: Vec<String>,
+        body: Vec<Statement>,
+        doc: Option<String>,
+    },
+    TriggerBehavior {
+        action_name: String,
+        instance: String,
+        args: Vec<Expr>,
+    },
 }
 
 

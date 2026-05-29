@@ -1,0 +1,293 @@
+
+Set score to 0.
+Set game_over to 0.
+Set food_x to a random number between 1 and 38.
+Set food_y to a random number between 1 and 28.
+Set food_real_x to (food_x * 20).
+Set food_real_y to (food_y * 20).
+Set dir_x to 1.
+Set dir_y to 0.
+Set next_dir_x to 1.
+Set next_dir_y to 0.
+Set snake_len to 1.
+Set s1_x to 0.
+Set s1_y to 0.
+Set s2_x to 0.
+Set s2_y to 0.
+Set s3_x to 0.
+Set s3_y to 0.
+Set s4_x to 0.
+Set s4_y to 0.
+Set s5_x to 0.
+Set s5_y to 0.
+Set s6_x to 0.
+Set s6_y to 0.
+Set s7_x to 0.
+Set s7_y to 0.
+Set s8_x to 0.
+Set s8_y to 0.
+Set s9_x to 0.
+Set s9_y to 0.
+Set s10_x to 0.
+Set s10_y to 0.
+Set s11_x to 0.
+Set s11_y to 0.
+Set s12_x to 0.
+Set s12_y to 0.
+Set s13_x to 0.
+Set s13_y to 0.
+Set s14_x to 0.
+Set s14_y to 0.
+Set s15_x to 0.
+Set s15_y to 0.
+Set s16_x to 0.
+Set s16_y to 0.
+Set s17_x to 0.
+Set s17_y to 0.
+Set s18_x to 0.
+Set s18_y to 0.
+Set s19_x to 0.
+Set s19_y to 0.
+Set s20_x to 0.
+Set s20_y to 0.
+Set s21_x to 0.
+Set s21_y to 0.
+Set s22_x to 0.
+Set s22_y to 0.
+Set s23_x to 0.
+Set s23_y to 0.
+Set s24_x to 0.
+Set s24_y to 0.
+Set s25_x to 0.
+Set s25_y to 0.
+Set s26_x to 0.
+Set s26_y to 0.
+Set s27_x to 0.
+Set s27_y to 0.
+Set s28_x to 0.
+Set s28_y to 0.
+Set s29_x to 0.
+Set s29_y to 0.
+Set s30_x to 0.
+Set s30_y to 0.
+Set s31_x to 0.
+Set s31_y to 0.
+Set s32_x to 0.
+Set s32_y to 0.
+Set s33_x to 0.
+Set s33_y to 0.
+Set s34_x to 0.
+Set s34_y to 0.
+Set s35_x to 0.
+Set s35_y to 0.
+Set s36_x to 0.
+Set s36_y to 0.
+Set s37_x to 0.
+Set s37_y to 0.
+Set s38_x to 0.
+Set s38_y to 0.
+Set s39_x to 0.
+Set s39_y to 0.
+Set s40_x to 0.
+Set s40_y to 0.
+Set s41_x to 0.
+Set s41_y to 0.
+Set s42_x to 0.
+Set s42_y to 0.
+Set s43_x to 0.
+Set s43_y to 0.
+Set s44_x to 0.
+Set s44_y to 0.
+Set s45_x to 0.
+Set s45_y to 0.
+Set s46_x to 0.
+Set s46_y to 0.
+Set s47_x to 0.
+Set s47_y to 0.
+Set s48_x to 0.
+Set s48_y to 0.
+Set s49_x to 0.
+Set s49_y to 0.
+Set s50_x to 0.
+Set s50_y to 0.
+
+Set s1_x to 10.
+Set s1_y to 10.
+Set last_move_time to 0.
+Set move_delay to 100.
+Please open a window with width 800 and height 600 titled "Syl Graphical Snake".
+Repeat while the window is not closing:
+    Begin drawing.
+    Clear the background to "black".
+    If game_over is 0:
+        If w key is pressed:
+            If (dir_y == 0):
+                Set next_dir_x to 0.
+                Set next_dir_y to (0 - 1).
+        If s key is pressed:
+            If (dir_y == 0):
+                Set next_dir_x to 0.
+                Set next_dir_y to 1.
+        If a key is pressed:
+            If (dir_x == 0):
+                Set next_dir_x to (0 - 1).
+                Set next_dir_y to 0.
+        If d key is pressed:
+            If (dir_x == 0):
+                Set next_dir_x to 1.
+                Set next_dir_y to 0.
+        Set cur_time to current time.
+        Set time_diff to (cur_time - last_move_time).
+        If (time_diff > move_delay):
+            Set last_move_time to cur_time.
+            Set dir_x to next_dir_x.
+            Set dir_y to next_dir_y.
+            If (snake_len > 49):
+                Set s50_x to s49_x.
+                Set s50_y to s49_y.
+            If (snake_len > 48):
+                Set s49_x to s48_x.
+                Set s49_y to s48_y.
+            If (snake_len > 47):
+                Set s48_x to s47_x.
+                Set s48_y to s47_y.
+            If (snake_len > 46):
+                Set s47_x to s46_x.
+                Set s47_y to s46_y.
+            If (snake_len > 45):
+                Set s46_x to s45_x.
+                Set s46_y to s45_y.
+            If (snake_len > 44):
+                Set s45_x to s44_x.
+                Set s45_y to s44_y.
+            If (snake_len > 43):
+                Set s44_x to s43_x.
+                Set s44_y to s43_y.
+            If (snake_len > 42):
+                Set s43_x to s42_x.
+                Set s43_y to s42_y.
+            If (snake_len > 41):
+                Set s42_x to s41_x.
+                Set s42_y to s41_y.
+            If (snake_len > 40):
+                Set s41_x to s40_x.
+                Set s41_y to s40_y.
+            If (snake_len > 39):
+                Set s40_x to s39_x.
+                Set s40_y to s39_y.
+            If (snake_len > 38):
+                Set s39_x to s38_x.
+                Set s39_y to s38_y.
+            If (snake_len > 37):
+                Set s38_x to s37_x.
+                Set s38_y to s37_y.
+            If (snake_len > 36):
+                Set s37_x to s36_x.
+                Set s37_y to s36_y.
+            If (snake_len > 35):
+                Set s36_x to s35_x.
+                Set s36_y to s35_y.
+            If (snake_len > 34):
+                Set s35_x to s34_x.
+                Set s35_y to s34_y.
+            If (snake_len > 33):
+                Set s34_x to s33_x.
+                Set s34_y to s33_y.
+            If (snake_len > 32):
+                Set s33_x to s32_x.
+                Set s33_y to s32_y.
+            If (snake_len > 31):
+                Set s32_x to s31_x.
+                Set s32_y to s31_y.
+            If (snake_len > 30):
+                Set s31_x to s30_x.
+                Set s31_y to s30_y.
+            If (snake_len > 29):
+                Set s30_x to s29_x.
+                Set s30_y to s29_y.
+            If (snake_len > 28):
+                Set s29_x to s28_x.
+                Set s29_y to s28_y.
+            If (snake_len > 27):
+                Set s28_x to s27_x.
+                Set s28_y to s27_y.
+            If (snake_len > 26):
+                Set s27_x to s26_x.
+                Set s27_y to s26_y.
+            If (snake_len > 25):
+                Set s26_x to s25_x.
+                Set s26_y to s25_y.
+            If (snake_len > 24):
+                Set s25_x to s24_x.
+                Set s25_y to s24_y.
+            If (snake_len > 23):
+                Set s24_x to s23_x.
+                Set s24_y to s23_y.
+            If (snake_len > 22):
+                Set s23_x to s22_x.
+                Set s23_y to s22_y.
+            If (snake_len > 21):
+                Set s22_x to s21_x.
+                Set s22_y to s21_y.
+            If (snake_len > 20):
+                Set s21_x to s20_x.
+                Set s21_y to s20_y.
+            If (snake_len > 19):
+                Set s20_x to s19_x.
+                Set s20_y to s19_y.
+            If (snake_len > 18):
+                Set s19_x to s18_x.
+                Set s19_y to s18_y.
+            If (snake_len > 17):
+                Set s18_x to s17_x.
+                Set s18_y to s17_y.
+            If (snake_len > 16):
+                Set s17_x to s16_x.
+                Set s17_y to s16_y.
+            If (snake_len > 15):
+                Set s16_x to s15_x.
+                Set s16_y to s15_y.
+            If (snake_len > 14):
+                Set s15_x to s14_x.
+                Set s15_y to s14_y.
+            If (snake_len > 13):
+                Set s14_x to s13_x.
+                Set s14_y to s13_y.
+            If (snake_len > 12):
+                Set s13_x to s12_x.
+                Set s13_y to s12_y.
+            If (snake_len > 11):
+                Set s12_x to s11_x.
+                Set s12_y to s11_y.
+            If (snake_len > 10):
+                Set s11_x to s10_x.
+                Set s11_y to s10_y.
+            If (snake_len > 9):
+                Set s10_x to s9_x.
+                Set s10_y to s9_y.
+            If (snake_len > 8):
+                Set s9_x to s8_x.
+                Set s9_y to s8_y.
+            If (snake_len > 7):
+                Set s8_x to s7_x.
+                Set s8_y to s7_y.
+            If (snake_len > 6):
+                Set s7_x to s6_x.
+                Set s7_y to s6_y.
+            If (snake_len > 5):
+                Set s6_x to s5_x.
+                Set s6_y to s5_y.
+            If (snake_len > 4):
+                Set s5_x to s4_x.
+                Set s5_y to s4_y.
+            If (snake_len > 3):
+                Set s4_x to s3_x.
+                Set s4_y to s3_y.
+            If (snake_len > 2):
+                Set s3_x to s2_x.
+                Set s3_y to s2_y.
+            If (snake_len > 1):
+                Set s2_x to s1_x.
+                Set s2_y to s1_y.
+
+            Set s1_x to (s1_x + dir_x).

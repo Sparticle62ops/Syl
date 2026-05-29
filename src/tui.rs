@@ -30,7 +30,7 @@ fn move_cursor(x: u16, y: u16) {
 }
 
 pub fn start_ide() {
-    let mut files: Vec<PathBuf> = fs::read_dir(".")
+    let files: Vec<PathBuf> = fs::read_dir(".")
         .unwrap()
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().map_or(false, |ext| ext == "syl"))

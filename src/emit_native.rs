@@ -39,7 +39,7 @@ impl NativeEmitter {
     fn declare_runtime_funcs(&mut self) {
         // void syl_arena_init()
         {
-            let mut sig = self.module.make_signature();
+            let sig = self.module.make_signature();
             // no params, no returns
             let id = self.module.declare_function("syl_arena_init", Linkage::Import, &sig).unwrap();
             self.runtime_funcs.insert("syl_arena_init".into(), id);
