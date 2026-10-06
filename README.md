@@ -1,6 +1,6 @@
 # Syl Programming Language [v2.5.0]
 
-**Syl** is a naturalistic systems programming language that compiles English-like syntax to native binaries via C transpilation. Write readable code, get real executables.
+**Syl** is a naturalistic systems programming language that compiles English-like syntax to native binaries through generated C. The compiler uses TCC on Windows installations and the platform C compiler on Unix-like systems.
 
 ## Features
 
@@ -8,7 +8,7 @@
 - **Graphical Games** — Built-in Raylib integration for windowed graphical applications
 - **Entity System** — Define entities with fields and behaviors for OOP-style programming
 - **Helix IR** — Intermediate representation for analysis and optimization
-- **C Transpilation** — Generates portable C code compiled via TCC
+- **C Transpilation** — Generates portable C code compiled via TCC or the platform C compiler
 - **Arena Memory** — Frame-based arena allocator with automatic per-frame resets
 
 ## Quick Start
@@ -21,8 +21,10 @@ powershell -ExecutionPolicy Bypass -File install_syl.ps1
 
 ### 2. Build the Compiler
 ```powershell
-cargo build
+cargo build --release
 ```
+
+On Unix-like systems, `cc` is used for generated C programs. Graphical examples additionally require Raylib; terminal and non-graphical examples do not.
 
 ### 3. Compile & Run Examples
 ```powershell
@@ -86,7 +88,7 @@ Trigger move_right on hero taking 5.
 ## Architecture
 
 ```
-source.syl → [Lexer] → [Parser] → [AST] → [Helix IR] → [C Codegen] → [TCC] → native .exe
+source.syl → [Lexer] → [Parser] → [AST] → [Helix IR] → [C Codegen] → [TCC/cc] → native binary
 ```
 
 | Component | File | Purpose |

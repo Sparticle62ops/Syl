@@ -1,6 +1,6 @@
 use crate::ast::*;
 use crate::lexer::{Token, Lexer};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::collections::HashSet;
 use std::fs;
 
@@ -148,7 +148,7 @@ impl<'a> Parser<'a> {
             Some(Token::Word(w)) => {
                 match w.as_str() {
                     // Skip decorative words at statement level
-                    "please" | "now" | "the" | "a" | "an" => { self.advance(); return self.parse_statement(); }
+                    "please" | "now" | "the" | "a" | "an" => { self.advance(); self.parse_statement() }
                     "bring" => self.parse_bring(),
                     "define" => self.parse_define(),
                     "trigger" => self.parse_trigger(),
@@ -189,7 +189,7 @@ impl<'a> Parser<'a> {
                     _ => Err(self.error_msg(&format!("I don't understand the statement starting with '{}'. Check your spelling or keyword.", w))),
                 }
             }
-            other => { println!("ERROR AT POS: {}", self.pos); return Err(self.error_msg(&format!("Expected a statement, but found {:?}.", other))); }
+            other => { println!("ERROR AT POS: {}", self.pos); Err(self.error_msg(&format!("Expected a statement, but found {:?}.", other))) }
         }
     }
     // Bring in "auth.syl" as auth.
@@ -216,78 +216,67 @@ impl<'a> Parser<'a> {
 
         let mut body = Vec::new();
 
-        // Virtual modules (built-in, no file needed)
-        let virtual_modules = ["sys", "core", "ui", "net", "math", "db", "time"];
-        if virtual_modules.contains(&filename.as_str()) {
-            println!("[ PARSE ] {} (virtual module)", filename);
-            self.imported_modules.insert(filename.clone());
-            return Ok(Statement::Import { filename, alias, body });
-        }
-
         if !self.imported_modules.contains(&filename) {
             self.imported_modules.insert(filename.clone());
 
-            // Resolve the module file path with fallback chain:
-            // 1. Local directory (relative to the importing file)
-            // 2. SYL_LIB_PATH environment variable
-            // 3. Executable-relative ../lib/ directory
+            // `db` and `time` are compiler-provided namespaces without source
+            // files. Their expressions/statements are lowered directly by the
+            // backend, so an empty import is intentional.
+            if matches!(filename.as_str(), "db" | "time") {
+                println!("[ PARSE ] {} (built-in module)", filename);
+                return Ok(Statement::Import { filename, alias, body });
+            }
+
             let syl_filename = if filename.ends_with(".syl") || filename.ends_with(".syx") {
                 filename.clone()
             } else {
                 format!("{}.syl", filename)
             };
 
-            let local_path = self.base_path.join(&syl_filename);
-            let resolved_path = if local_path.exists() {
-                println!("[ PARSE ] {} (local)", syl_filename);
-                local_path
-            } else if let Ok(lib_path) = std::env::var("SYL_LIB_PATH") {
-                let global_path = std::path::PathBuf::from(&lib_path).join(&syl_filename);
-                if global_path.exists() {
-                    println!("[ PARSE ] {} (SYL_LIB_PATH: {})", syl_filename, lib_path);
-                    global_path
-                } else {
-                    return Err(self.error_msg(&format!(
-                        "I could not find the module '{}'. I looked in:\n  1. {}\n  2. {}",
-                        filename, local_path.display(), global_path.display()
-                    )));
-                }
-            } else {
-                // Fallback: look relative to the syl executable
-                let exe_lib = std::env::current_exe()
-                    .ok()
-                    .and_then(|p| p.parent().map(|d| d.join("../lib").join(&syl_filename)));
-                if let Some(ref exe_path) = exe_lib {
-                    if exe_path.exists() {
-                        println!("[ PARSE ] {} (SDK lib/)", syl_filename);
-                        exe_path.clone()
-                    } else {
-                        return Err(self.error_msg(&format!(
-                            "I could not find the module '{}'. I looked in:\n  1. {}\n  Set SYL_LIB_PATH to your Syl standard library directory.",
-                            filename, local_path.display()
-                        )));
-                    }
-                } else {
-                    return Err(self.error_msg(&format!(
-                        "I could not find the module '{}' in the local directory.", filename
-                    )));
-                }
-            };
+            // Search the importing directory first, then an explicitly configured
+            // library directory, followed by repository/SDK library locations.
+            let mut candidates = Vec::<PathBuf>::new();
+            candidates.push(self.base_path.join(&syl_filename));
+            if let Ok(lib_path) = std::env::var("SYL_LIB_PATH") {
+                candidates.push(PathBuf::from(lib_path).join(&syl_filename));
+            }
 
-            let source = match fs::read_to_string(&resolved_path) {
-                Ok(s) => s,
-                Err(e) => return Err(self.error_msg(&format!("Failed to read module '{}': {}", filename, e))),
-            };
-            
+            let mut directory = std::env::current_dir().ok();
+            while let Some(dir) = directory {
+                candidates.push(dir.join(&syl_filename));
+                candidates.push(dir.join("lib").join(&syl_filename));
+                directory = dir.parent().map(Path::to_path_buf);
+            }
+
+            if let Ok(exe) = std::env::current_exe() {
+                let mut directory = exe.parent().map(Path::to_path_buf);
+                while let Some(dir) = directory {
+                    candidates.push(dir.join("lib").join(&syl_filename));
+                    directory = dir.parent().map(Path::to_path_buf);
+                }
+            }
+
+            let resolved_path = candidates.into_iter().find(|path| path.exists()).ok_or_else(|| {
+                self.error_msg(&format!(
+                    "I could not find the module '{}'. Set SYL_LIB_PATH to the directory containing it.",
+                    filename
+                ))
+            })?;
+            println!("[ PARSE ] {} ({})", syl_filename, resolved_path.display());
+
+            let source = fs::read_to_string(&resolved_path).map_err(|e| {
+                self.error_msg(&format!("Failed to read module '{}': {}", filename, e))
+            })?;
+
             let mut lexer = Lexer::new(&source);
             let tokens = lexer.tokenize();
-            
-            let mut child_parser = Parser::new(tokens, self.base_path, self.imported_modules);
+            let module_base = resolved_path.parent().unwrap_or(self.base_path);
+            let mut child_parser = Parser::new(tokens, module_base, self.imported_modules);
             if is_package || filename.ends_with(".syx") || syl_filename.ends_with(".syx") {
                 child_parser.is_sandboxed = true;
             }
             let mut ast = child_parser.parse()?;
-            
+
             // Namespace prefixing for exported actions
             for stmt in &mut ast {
                 if let Statement::DefineAction { name, .. } = stmt {
@@ -359,6 +348,13 @@ impl<'a> Parser<'a> {
             }
         }
 
+        if let Some(Token::Word(w)) = self.peek().cloned() {
+            let next_is_word = matches!(self.tokens.get(self.pos + 1), Some(Token::Word(_)));
+            if w == "the" || ((w == "a" || w == "an") && next_is_word &&
+                !matches!(self.tokens.get(self.pos + 1), Some(Token::Word(next)) if next == "to")) {
+                self.advance();
+            }
+        }
         let left = self.parse_expr()?;
         
         // Conversational error: missing 'to'
@@ -413,7 +409,11 @@ impl<'a> Parser<'a> {
 
     fn parse_download(&mut self) -> Result<Statement, String> {
         self.expect_word("download")?;
-        self.expect_word("from")?;
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "from" {
+                self.advance();
+            }
+        }
         let url = self.parse_expr()?;
         self.expect_word("as")?;
         let target = self.expect_ident()?;
@@ -423,7 +423,11 @@ impl<'a> Parser<'a> {
 
     fn parse_enforce(&mut self) -> Result<Statement, String> {
         self.expect_word("enforce")?;
-        self.expect_word("that")?;
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "that" {
+                self.advance();
+            }
+        }
         if let Some(Token::Word(w)) = self.peek() {
             if w == "the" {
                 self.advance();
@@ -433,14 +437,13 @@ impl<'a> Parser<'a> {
         self.expect_word("is")?;
         self.expect_word("not")?;
         self.expect_word("empty")?;
-        self.expect_punct(',')?;
+        if let Some(Token::Punctuation(',')) = self.peek() {
+            self.advance();
+        }
         self.expect_word("or")?;
         self.expect_word("crash")?;
         self.expect_word("with")?;
-        let crash_msg = match self.advance() {
-            Some(Token::StringLit(s)) => s.clone(),
-            _ => return Err("Expected string".into()),
-        };
+        let crash_msg = self.parse_expr()?;
         self.expect_punct('.')?;
         Ok(Statement::Enforce { name, condition: "not empty".into(), crash_msg })
     }
@@ -456,7 +459,15 @@ impl<'a> Parser<'a> {
                 self.advance();
             }
         }
-        let value = self.parse_expr()?;
+        let mut value = self.parse_expr()?;
+        while let Some(Token::Word(w)) = self.peek() {
+            if w != "and" {
+                break;
+            }
+            self.advance();
+            let right = self.parse_expr()?;
+            value = Expr::Join { left: Box::new(value), right: Box::new(right) };
+        }
         
         if let Some(Token::Word(w)) = self.peek() {
             if w == "colored" {
@@ -570,40 +581,47 @@ impl<'a> Parser<'a> {
         if type_name == "folder" {
             let path = self.parse_expr()?;
             self.expect_punct('.')?;
-            return Ok(Statement::CreateFolder { path });
-        } else if type_name == "Dictionary" {
+            Ok(Statement::CreateFolder { path })
+        } else if type_name.eq_ignore_ascii_case("dictionary") {
             self.expect_word("called")?;
             let name = self.expect_ident()?;
             self.expect_punct('.')?;
-            return Ok(Statement::CreateDictionary { name });
-        } else if type_name == "List" {
+            Ok(Statement::CreateDictionary { name })
+        } else if type_name.eq_ignore_ascii_case("list") {
             self.expect_word("called")?;
             let name = self.expect_ident()?;
-            self.expect_word("containing")?;
             let mut items = Vec::new();
-            items.push(self.parse_expr()?);
-            while let Some(Token::Word(w)) = self.peek() {
-                if w == "and" || w == "," {
+            if let Some(Token::Word(w)) = self.peek() {
+                if w == "containing" {
                     self.advance();
                     items.push(self.parse_expr()?);
-                } else {
-                    break;
+                    while let Some(Token::Word(w)) = self.peek() {
+                        if w == "and" {
+                            self.advance();
+                            items.push(self.parse_expr()?);
+                        } else {
+                            break;
+                        }
+                    }
                 }
             }
             self.expect_punct('.')?;
-            return Ok(Statement::CreateList { name, items });
+            Ok(Statement::CreateList { name, items })
         } else {
             self.expect_word("called")?;
             let name = self.expect_ident()?;
             self.expect_punct('.')?;
-            return Ok(Statement::CreateEntity { entity_type: type_name, name });
+            Ok(Statement::CreateEntity { entity_type: type_name, name })
         }
     }
 
     fn parse_define_action(&mut self) -> Result<Statement, String> {
         self.expect_word("action")?;
         self.expect_word("called")?;
-        let name = self.expect_ident()?;
+        let name = match self.advance().cloned() {
+            Some(Token::Word(name)) | Some(Token::StringLit(name)) => name,
+            other => return Err(self.error_msg(&format!("Expected an action name, got {:?}", other))),
+        };
         
         let mut args = Vec::new();
         if let Some(Token::Word(w)) = self.peek() {
@@ -621,6 +639,14 @@ impl<'a> Parser<'a> {
             }
         }
         
+        // Both `... taking x:` and the more conversational `... taking x that does:`
+        // are accepted by the standard library and examples.
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "that" {
+                self.advance();
+                self.expect_word("does")?;
+            }
+        }
         self.expect_punct(':')?;
         let body = self.parse_block()?;
         Ok(Statement::DefineAction { name, args, body, doc: self.last_comment.take() })
@@ -747,13 +773,13 @@ impl<'a> Parser<'a> {
         if is_window_not_closing {
             self.expect_punct(':')?;
             let body = self.parse_block()?;
-            return Ok(Statement::WhileNot { condition_action: "WindowShouldClose".into(), body });
+            Ok(Statement::WhileNot { condition_action: "WindowShouldClose".into(), body })
         } else {
             self.pos = saved_pos;
             let condition = self.parse_conditional_expr()?;
             self.expect_punct(':')?;
             let body = self.parse_block()?;
-            return Ok(Statement::While { condition, body });
+            Ok(Statement::While { condition, body })
         }
     }
 
@@ -900,6 +926,11 @@ impl<'a> Parser<'a> {
 
     fn parse_increase(&mut self) -> Result<Statement, String> {
         self.expect_word("increase")?;
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "the" {
+                self.advance();
+            }
+        }
         let name = self.expect_ident()?;
         self.expect_word("by")?;
         let amount = self.parse_expr()?;
@@ -977,7 +1008,7 @@ impl<'a> Parser<'a> {
             let then_branch = self.parse_block()?;
             let mut else_branch = None;
             if let Some(Token::Word(w)) = self.peek() {
-                if w == "Otherwise" {
+                if w == "otherwise" {
                     self.advance();
                     self.expect_punct(':')?;
                     else_branch = Some(self.parse_block()?);
@@ -986,6 +1017,11 @@ impl<'a> Parser<'a> {
             return Ok(Statement::IfExpr { condition, then_branch, else_branch });
         }
 
+        if let Some(Token::Word(w)) = self.peek() {
+            if w == "the" {
+                self.advance();
+            }
+        }
         let ident = self.expect_ident()?;
         if ident == "it" {
             if let Some(Token::Word(w2)) = self.peek() {
@@ -1023,21 +1059,56 @@ impl<'a> Parser<'a> {
                 return Ok(Statement::IfEndsWith { filename: ident, extension, body });
             } else if w == "is" {
                 self.advance();
+                if let Some(Token::Word(comparison)) = self.peek().cloned() {
+                    let op = match comparison.as_str() {
+                        "greater" => Some(BinOp::Gt),
+                        "less" => Some(BinOp::Lt),
+                        "equal" => Some(BinOp::Eq),
+                        "not" => Some(BinOp::Neq),
+                        _ => None,
+                    };
+                    if let Some(op) = op {
+                        self.advance();
+                        match comparison.as_str() {
+                            "greater" | "less" => self.expect_word("than")?,
+                            "equal" => self.expect_word("to")?,
+                            "not" => {}
+                            _ => unreachable!(),
+                        }
+                        let right = self.parse_expr()?;
+                        self.expect_punct(':')?;
+                        let then_branch = self.parse_block()?;
+                        let else_branch = self.parse_otherwise_block()?;
+                        return Ok(Statement::IfExpr {
+                            condition: Expr::BinaryOp {
+                                op,
+                                left: Box::new(Expr::Identifier(ident)),
+                                right: Box::new(right),
+                            },
+                            then_branch,
+                            else_branch,
+                        });
+                    }
+                }
                 let val = self.parse_expr()?;
                 self.expect_punct(':')?;
                 let then_branch = self.parse_block()?;
-                let mut else_branch = None;
-                if let Some(Token::Word(ew)) = self.peek() {
-                    if ew == "Otherwise" {
-                        self.advance();
-                        self.expect_punct(':')?;
-                        else_branch = Some(self.parse_block()?);
-                    }
-                }
+                let else_branch = self.parse_otherwise_block()?;
                 return Ok(Statement::IfElse { condition_var: ident, condition_val: val, then_branch, else_branch });
             }
         }
         Err(self.error_msg("Unsupported If format. Use 'If (expr):' or 'If X is Y:' or 'If X key is pressed:'"))
+    }
+
+    fn parse_otherwise_block(&mut self) -> Result<Option<Vec<Statement>>, String> {
+        if let Some(Token::Word(word)) = self.peek() {
+            if word == "otherwise" {
+                self.advance();
+                self.expect_punct(':')?;
+                return Ok(Some(self.parse_block()?));
+            }
+        }
+        Ok(None)
     }
 
     fn parse_for_each(&mut self) -> Result<Statement, String> {
@@ -1097,7 +1168,32 @@ impl<'a> Parser<'a> {
             }
         }
         
-        // Fallback to normal execute
+        // `Execute namespace action with value` is the direct FFI form.
+        if let Some(Token::Word(namespace)) = self.peek().cloned() {
+            let saved_pos = self.pos;
+            self.advance();
+            if let Some(Token::Word(action)) = self.peek().cloned() {
+                self.advance();
+                if let Some(Token::Word(with)) = self.peek() {
+                    if with == "with" {
+                        self.advance();
+                        let mut args = vec![self.parse_expr()?];
+                        while let Some(Token::Word(and)) = self.peek() {
+                            if and != "and" {
+                                break;
+                            }
+                            self.advance();
+                            args.push(self.parse_expr()?);
+                        }
+                        self.expect_punct('.')?;
+                        return Ok(Statement::Execute { namespace, action, args });
+                    }
+                }
+            }
+            self.pos = saved_pos;
+        }
+
+        // Fallback to normal expression-based action calls.
         let expr = self.parse_expr()?;
         self.expect_punct('.')?;
         if let Expr::Call { action, args } = expr {
@@ -1136,7 +1232,7 @@ impl<'a> Parser<'a> {
 
         let mut cases = Vec::new();
         while let Some(Token::Word(w)) = self.peek() {
-            if w == "When" {
+            if w == "when" {
                 self.advance();
                 self.expect_word("it")?;
                 self.expect_word("is")?;
@@ -1144,11 +1240,11 @@ impl<'a> Parser<'a> {
                 self.expect_punct(':')?;
                 let body = self.parse_block()?;
                 cases.push(MatchCase { value: val, body });
-            } else if w == "Otherwise" {
+            } else if w == "otherwise" {
                 self.advance();
                 self.expect_punct(':')?;
                 let body = self.parse_block()?;
-                cases.push(MatchCase { value: Expr::Identifier("Otherwise".into()), body }); // special marker
+                cases.push(MatchCase { value: Expr::Identifier("otherwise".into()), body }); // special marker
             } else {
                 break;
             }
@@ -1239,8 +1335,7 @@ impl<'a> Parser<'a> {
 
     fn parse_conditional_expr(&mut self) -> Result<Expr, String> {
         let mut left = self.parse_expr()?;
-        loop {
-            if let Some(Token::Word(w)) = self.peek() {
+        while let Some(Token::Word(w)) = self.peek() {
                 match w.as_str() {
                     "and" => {
                         self.advance();
@@ -1259,9 +1354,6 @@ impl<'a> Parser<'a> {
                     }
                     _ => break,
                 }
-            } else {
-                break;
-            }
         }
         Ok(left)
     }
@@ -1404,6 +1496,10 @@ impl<'a> Parser<'a> {
         match tok {
             Some(Token::StringLit(s)) => Ok(Expr::StringLit(s)),
             Some(Token::Number(n)) => Ok(Expr::Number(n)),
+            Some(Token::Minus) => {
+                let value = self.parse_primary_expr()?;
+                Ok(Expr::UnaryNeg { value: Box::new(value) })
+            },
             // v1.4: Parenthesized math block
             Some(Token::LParen) => {
                 let expr = self.parse_math_expr()?;
@@ -1415,7 +1511,6 @@ impl<'a> Parser<'a> {
             }
             Some(Token::Word(w)) => {
                 match w.as_str() {
-                    // Handle capitalized articles that weren't stripped by lexer
                     "the" => {
                         if let Some(Token::Word(w2)) = self.peek() {
                             match w2.as_str() {
@@ -1432,12 +1527,15 @@ impl<'a> Parser<'a> {
                                     let val = self.parse_expr()?;
                                     return Ok(Expr::FileSize { path: Box::new(val) });
                                 }
+                                "current" => return self.parse_primary_expr(),
                                 _ => {
-                                    return self.parse_primary_expr();
+                                    if matches!(self.peek(), Some(Token::Word(_))) {
+                                        return self.parse_primary_expr();
+                                    }
                                 }
                             }
                         }
-                        return self.parse_primary_expr();
+                        return Ok(Expr::Identifier(w));
                     }
                     "a" | "an" => {
                         if let Some(Token::Word(w2)) = self.peek() {
@@ -1451,8 +1549,7 @@ impl<'a> Parser<'a> {
                                 return Ok(Expr::Random { min: Box::new(min), max: Box::new(max) });
                             }
                         }
-                        // "a"/"an" are decorative, skip
-                        return self.parse_primary_expr();
+                        return Ok(Expr::Identifier(w));
                     }
                     // v1.4: Raylib intrinsics
                     "delta" => {

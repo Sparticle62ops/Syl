@@ -33,7 +33,7 @@ pub fn start_ide() {
     let files: Vec<PathBuf> = fs::read_dir(".")
         .unwrap()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map_or(false, |ext| ext == "syl"))
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "syl"))
         .map(|e| e.path())
         .collect();
 
@@ -152,16 +152,14 @@ pub fn start_ide() {
             }
         } else {
             match c {
-                'w' | 'W' => if selected_file_idx > 0 { selected_file_idx -= 1; },
+                'w' | 'W' => { selected_file_idx = selected_file_idx.saturating_sub(1); }
                 's' | 'S' => if selected_file_idx < files.len().saturating_sub(1) { selected_file_idx += 1; },
-                '\r' | '\n' | 'e' | 'E' => {
-                    if !files.is_empty() {
-                        current_file = Some(files[selected_file_idx].clone());
-                        let content = fs::read_to_string(current_file.as_ref().unwrap()).unwrap_or_default();
-                        editor_content = content.lines().map(|s| s.to_string()).collect();
-                        if editor_content.is_empty() { editor_content.push(String::new()); }
-                        in_editor = true;
-                    }
+                '\r' | '\n' | 'e' | 'E' if !files.is_empty() => {
+                    current_file = Some(files[selected_file_idx].clone());
+                    let content = fs::read_to_string(current_file.as_ref().unwrap()).unwrap_or_default();
+                    editor_content = content.lines().map(|s| s.to_string()).collect();
+                    if editor_content.is_empty() { editor_content.push(String::new()); }
+                    in_editor = true;
                 }
                 _ => {}
             }

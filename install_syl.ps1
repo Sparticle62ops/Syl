@@ -26,14 +26,14 @@ New-Item -ItemType Directory -Force -Path $LibDir | Out-Null
 New-Item -ItemType Directory -Force -Path $TccDir | Out-Null
 
 # --- 3. Build the Compiler (if cargo is available) ---
-$CargoPath = "$ScriptDir\tools\rust\.cargo\bin\cargo.exe"
-$ReleaseBin = "$ScriptDir\syl\target\release\syl.exe"
+$CargoPath = Get-Command cargo -ErrorAction SilentlyContinue
+$ReleaseBin = Join-Path $ScriptDir "target\release\syl.exe"
 
-if (Test-Path $CargoPath) {
+if ($CargoPath) {
     Write-Host "  [3/6] Building syl.exe (release mode)..." -ForegroundColor Yellow
     try {
-        Push-Location "$ScriptDir\syl"
-        & $CargoPath build --release 2>&1 | Out-Null
+        Push-Location $ScriptDir
+        & $CargoPath.Source build --release 2>&1 | Out-Null
         Pop-Location
     } catch {
         Write-Host "  [3/6] SKIP: Cargo build failed (Zig linker issue). Using pre-built binary if available." -ForegroundColor DarkYellow
@@ -49,16 +49,16 @@ Write-Host "  [4/6] Copying binaries to $BinDir ..." -ForegroundColor Yellow
 if (Test-Path $ReleaseBin) {
     Copy-Item $ReleaseBin -Destination $BinDir -Force
     Write-Host "         -> syl.exe (release)" -ForegroundColor Green
-} elseif (Test-Path "$ScriptDir\syl\target\debug\syl.exe") {
-    Copy-Item "$ScriptDir\syl\target\debug\syl.exe" -Destination $BinDir -Force
+} elseif (Test-Path "$ScriptDir\target\debug\syl.exe") {
+    Copy-Item "$ScriptDir\target\debug\syl.exe" -Destination $BinDir -Force
     Write-Host "         -> syl.exe (debug)" -ForegroundColor Green
 } else {
     Write-Host "         -> syl.exe NOT FOUND. Build the compiler first." -ForegroundColor Red
 }
 
 # Copy raylib.dll if present
-if (Test-Path "$ScriptDir\syl\raylib.dll") {
-    Copy-Item "$ScriptDir\syl\raylib.dll" -Destination $BinDir -Force
+if (Test-Path "$ScriptDir\raylib.dll") {
+    Copy-Item "$ScriptDir\raylib.dll" -Destination $BinDir -Force
     Write-Host "         -> raylib.dll" -ForegroundColor Green
 }
 
@@ -71,7 +71,7 @@ if (Test-Path $TccSource) {
 
 # --- 5. Copy Standard Library ---
 Write-Host "  [5/6] Installing standard library to $LibDir ..." -ForegroundColor Yellow
-$LibSource = "$ScriptDir\syl\lib"
+$LibSource = "$ScriptDir\lib"
 if (Test-Path $LibSource) {
     Get-ChildItem "$LibSource\*.syl" | ForEach-Object {
         Copy-Item $_.FullName -Destination $LibDir -Force

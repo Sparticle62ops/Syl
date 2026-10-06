@@ -6,8 +6,11 @@ pub struct CodeGen {
     indent_level: usize,
     pub var_types: std::collections::HashMap<String, String>,
     pub entity_defs: std::collections::HashMap<String, Vec<(String, Expr)>>,
+    pub action_return_types: std::collections::HashMap<String, String>,
+    pub action_param_types: std::collections::HashMap<(String, String), String>,
     pub use_sqlite: bool,
     pub use_net: bool,
+    pub use_raylib: bool,
 }
 
 impl CodeGen {
@@ -18,12 +21,15 @@ impl CodeGen {
             indent_level: 0,
             var_types: std::collections::HashMap::new(),
             entity_defs: std::collections::HashMap::new(),
+            action_return_types: std::collections::HashMap::new(),
+            action_param_types: std::collections::HashMap::new(),
             use_sqlite: false,
             use_net: false,
+            use_raylib: false,
         }
     }
 
-    fn get_preamble(&self, use_sqlite: bool, use_net: bool) -> String {
+    fn get_preamble(&self, use_sqlite: bool, use_net: bool, use_raylib: bool) -> String {
         let mut sqlite_include = "";
         let mut sqlite_typedef = "typedef void* Database;\n";
         let mut sqlite_funcs = r#"
@@ -103,6 +109,13 @@ String _syl_current_path;
 "#;
         }
 
+        let raylib_include = if use_raylib { "#include \"raylib.h\"\n" } else { "" };
+        let emscripten_include = if use_raylib {
+            "#ifdef __EMSCRIPTEN__\n#include <emscripten.h>\n#endif\n"
+        } else {
+            ""
+        };
+
         let preamble = format!(r#"#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -119,12 +132,12 @@ String _syl_current_path;
     #include <conio.h>
 #else
     #include <termios.h>
+    #include <unistd.h>
+    #include <sys/select.h>
 #endif
 {}
-#include "raylib.h"
-#ifdef __EMSCRIPTEN__
-#include <emscripten.h>
-#endif
+{}
+{}
 
 // Syl v0.1 C Transpiler Preamble
 typedef char* String;
@@ -270,7 +283,7 @@ Dictionary syl_dict_from_json(String j) {{
     free(copy);
     return d;
 }}
-"#, sqlite_include, net_include, sqlite_typedef, sqlite_funcs, net_typedefs, net_funcs);
+"#, sqlite_include, net_include, raylib_include, emscripten_include, sqlite_typedef, sqlite_funcs, net_typedefs, net_funcs);
         preamble
     }
 
@@ -286,7 +299,11 @@ Dictionary syl_dict_from_json(String j) {{
     pub fn generate_preamble(&mut self, ast: &[Statement]) {
         let use_sqlite = has_db_usage(ast);
         let use_net = has_net_usage(ast);
-        self.c_code = self.get_preamble(use_sqlite, use_net);
+        self.use_sqlite = use_sqlite;
+        self.use_net = use_net;
+        self.use_raylib = has_graphics_usage(ast);
+        self.collect_action_types(ast);
+        self.c_code = self.get_preamble(use_sqlite, use_net, self.use_raylib);
     }
 
     pub fn generate(&mut self, ast: &[Statement]) {
@@ -295,6 +312,237 @@ Dictionary syl_dict_from_json(String j) {{
         }
     }
 
+    fn collect_action_types(&mut self, ast: &[Statement]) {
+        for stmt in ast {
+            match stmt {
+                Statement::Import { body, .. } => self.collect_action_types(body),
+                Statement::DefineAction { name, args, body, .. } => {
+                    let mut param_types = std::collections::HashMap::new();
+                    for arg in args {
+                        param_types.insert(arg.clone(), "double".to_string());
+                    }
+                    self.mark_string_parameters(body, &mut param_types);
+                    for arg in args {
+                        let ty = param_types.get(arg).cloned().unwrap_or_else(|| "double".to_string());
+                        self.action_param_types.insert((name.clone(), arg.clone()), ty);
+                    }
+                    let mut string_names = param_types
+                        .iter()
+                        .filter(|(_, ty)| ty.as_str() == "String")
+                        .map(|(name, _)| name.clone())
+                        .collect::<std::collections::HashSet<_>>();
+                    self.collect_string_locals(body, &mut string_names);
+                    let mut local_types = std::collections::HashMap::new();
+                    self.collect_local_types(body, &mut local_types);
+                    let return_type = body.iter().find_map(|stmt| {
+                        if let Statement::Return { value } = stmt {
+                            if let Expr::Identifier(name) = value {
+                                if local_types.get(name).is_some_and(|ty| ty == "List") {
+                                    return Some("String*");
+                                }
+                            }
+                            Some(if self.expr_is_string_with_names(value, &string_names) {
+                                "String"
+                            } else {
+                                "double"
+                            })
+                        } else {
+                            None
+                        }
+                    }).unwrap_or("double");
+                    self.action_return_types.insert(name.clone(), return_type.to_string());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn mark_string_parameters(&self, body: &[Statement], params: &mut std::collections::HashMap<String, String>) {
+        for stmt in body {
+            match stmt {
+                Statement::Assign { value, .. } => self.mark_string_expr(value, params),
+                Statement::Print { .. } | Statement::PrintColored { .. } => {}
+                Statement::Write { data, path } => {
+                    self.mark_string_expr(data, params);
+                    self.mark_string_expr(path, params);
+                }
+                Statement::Read { path, .. } | Statement::List { path, .. } | Statement::CreateFolder { path } => {
+                    self.mark_string_expr(path, params);
+                }
+                Statement::Move { path, destination } => {
+                    self.mark_string_expr(path, params);
+                    self.mark_string_expr(destination, params);
+                }
+                Statement::Download { url, .. } => self.mark_string_expr(url, params),
+                Statement::Enforce { name, crash_msg, .. } => {
+                    if params.contains_key(name) {
+                        params.insert(name.clone(), "String".to_string());
+                    }
+                    self.mark_string_expr(crash_msg, params);
+                }
+                Statement::HttpReply { content } => self.mark_string_expr(content, params),
+                Statement::SetDictKey { key, value, .. } => {
+                    self.mark_string_expr(key, params);
+                    self.mark_string_expr(value, params);
+                }
+                Statement::IfElse { condition_val, then_branch, else_branch, .. } => {
+                    self.mark_string_expr(condition_val, params);
+                    self.mark_string_parameters(then_branch, params);
+                    if let Some(branch) = else_branch {
+                        self.mark_string_parameters(branch, params);
+                    }
+                }
+                Statement::IfExpr { then_branch, else_branch, .. } => {
+                    self.mark_string_parameters(then_branch, params);
+                    if let Some(branch) = else_branch {
+                        self.mark_string_parameters(branch, params);
+                    }
+                }
+                Statement::While { body, .. }
+                | Statement::WhileNot { body, .. }
+                | Statement::ForEach { body, .. }
+                | Statement::Repeat { body, .. }
+                | Statement::IfKeyPressed { body, .. }
+                | Statement::IfEndsWith { body, .. } => self.mark_string_parameters(body, params),
+                Statement::Attempt { action } => self.mark_string_parameters(std::slice::from_ref(action.as_ref()), params),
+                _ => {}
+            }
+        }
+    }
+
+    fn mark_string_expr(&self, expr: &Expr, params: &mut std::collections::HashMap<String, String>) {
+        match expr {
+            Expr::Identifier(name) if params.contains_key(name) => {
+                params.insert(name.clone(), "String".to_string());
+            }
+            Expr::Join { left, right } => {
+                self.mark_string_expr(left, params);
+                self.mark_string_expr(right, params);
+            }
+            Expr::GetDictKey { key, .. } => self.mark_string_expr(key, params),
+            Expr::FileSize { path: json }
+            | Expr::DictFromJson { json }
+            | Expr::Sqrt { value: json }
+            | Expr::UnaryNeg { value: json } => {
+                self.mark_string_expr(json, params);
+            }
+            Expr::BinaryOp { left, right, .. } | Expr::Pow { base: left, exponent: right } | Expr::Random { min: left, max: right } => {
+                self.mark_string_expr(left, params);
+                self.mark_string_expr(right, params);
+            }
+            Expr::Call { .. } | Expr::Number(_) | Expr::Identifier(_) | Expr::StringLit(_)
+            | Expr::DeltaTime | Expr::MouseX | Expr::MouseY | Expr::CurrentTime | Expr::CurrentDate => {}
+            _ => {}
+        }
+    }
+
+    fn collect_local_types(&self, body: &[Statement], types: &mut std::collections::HashMap<String, String>) {
+        for stmt in body {
+            match stmt {
+                Statement::List { identifier, .. } | Statement::ListWords { identifier, .. } | Statement::CreateList { name: identifier, .. } => {
+                    types.insert(identifier.clone(), "List".to_string());
+                }
+                Statement::Read { identifier, .. } | Statement::Download { target: identifier, .. } => {
+                    types.insert(identifier.clone(), "String".to_string());
+                }
+                Statement::IfElse { then_branch, else_branch, .. } => {
+                    self.collect_local_types(then_branch, types);
+                    if let Some(branch) = else_branch {
+                        self.collect_local_types(branch, types);
+                    }
+                }
+                Statement::IfExpr { then_branch, else_branch, .. } => {
+                    self.collect_local_types(then_branch, types);
+                    if let Some(branch) = else_branch {
+                        self.collect_local_types(branch, types);
+                    }
+                }
+                Statement::While { body, .. }
+                | Statement::WhileNot { body, .. }
+                | Statement::ForEach { body, .. }
+                | Statement::Repeat { body, .. }
+                | Statement::IfKeyPressed { body, .. }
+                | Statement::IfEndsWith { body, .. } => self.collect_local_types(body, types),
+                _ => {}
+            }
+        }
+    }
+
+    fn collect_string_locals(&self, body: &[Statement], names: &mut std::collections::HashSet<String>) {
+        for stmt in body {
+            match stmt {
+                Statement::Assign { name, value } => {
+                    if self.expr_is_string_with_names(value, names) {
+                        names.insert(name.clone());
+                    }
+                }
+                Statement::Read { identifier, .. } | Statement::Download { target: identifier, .. } => {
+                    names.insert(identifier.clone());
+                }
+                Statement::IfElse { then_branch, else_branch, .. } => {
+                    self.collect_string_locals(then_branch, names);
+                    if let Some(branch) = else_branch {
+                        self.collect_string_locals(branch, names);
+                    }
+                }
+                Statement::IfExpr { then_branch, else_branch, .. } => {
+                    self.collect_string_locals(then_branch, names);
+                    if let Some(branch) = else_branch {
+                        self.collect_string_locals(branch, names);
+                    }
+                }
+                Statement::While { body, .. }
+                | Statement::WhileNot { body, .. }
+                | Statement::ForEach { body, .. }
+                | Statement::Repeat { body, .. }
+                | Statement::IfKeyPressed { body, .. }
+                | Statement::IfEndsWith { body, .. } => self.collect_string_locals(body, names),
+                _ => {}
+            }
+        }
+    }
+
+    fn expr_is_string_with_names(&self, expr: &Expr, names: &std::collections::HashSet<String>) -> bool {
+        match expr {
+            Expr::StringLit(_) | Expr::Join { .. } | Expr::CurrentDate
+            | Expr::JsonFromDict { .. } => true,
+            Expr::Identifier(name) => names.contains(name) || self.var_types.get(name).is_some_and(|ty| ty == "String"),
+            Expr::Call { action, .. } => {
+                let action = self.resolve_action_name(action);
+                self.action_return_types.get(&action).is_some_and(|ty| ty == "String")
+            }
+            Expr::GetField { entity_instance, field_name } => self.entity_field_is_string(entity_instance, field_name),
+            Expr::SelfField { field_name } => self.entity_field_is_string("self", field_name),
+            _ => false,
+        }
+    }
+
+    fn entity_field_is_string(&self, entity_instance: &str, field_name: &str) -> bool {
+        let entity_type = self.var_types.get(entity_instance);
+        entity_type.and_then(|ty| self.entity_defs.get(ty)).is_some_and(|fields| {
+            fields.iter().any(|(name, value)| name == field_name && self.expr_is_string_with_names(value, &std::collections::HashSet::new()))
+        })
+    }
+
+    fn expr_type(&self, expr: &Expr) -> &'static str {
+        if matches!(expr, Expr::DictFromJson { .. }) {
+            return "Dictionary";
+        }
+        if let Expr::Call { action, .. } = expr {
+            let action = self.resolve_action_name(action);
+            if let Some(ty) = self.action_return_types.get(&action) {
+                return match ty.as_str() {
+                    "String" => "String",
+                    "String*" => "String*",
+                    "Dictionary" => "Dictionary",
+                    _ => "double",
+                };
+            }
+        }
+        if self.expr_is_string(expr) { "String" } else { "double" }
+    }
+
+    #[allow(clippy::useless_format)]
     fn gen_statement(&mut self, stmt: &Statement) {
         match stmt {
             Statement::Import { filename, alias, body } => {
@@ -304,29 +552,33 @@ Dictionary syl_dict_from_json(String j) {{
                 }
             }
             Statement::DefineAction { name, args, body, .. } => {
+                let saved_types = self.var_types.clone();
+                let return_type = self.action_return_types.get(name).map(String::as_str).unwrap_or("double");
                 let args_str = args.iter()
-                    .map(|a| {
-                        self.var_types.insert(a.clone(), "double".to_string());
-                        format!("double {}", a)
+                    .map(|arg| {
+                        let ty = self.action_param_types
+                            .get(&(name.clone(), arg.clone()))
+                            .map(String::as_str)
+                            .unwrap_or("double");
+                        self.var_types.insert(arg.clone(), ty.to_string());
+                        format!("{} {}", ty, arg)
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                self.push_line(&format!("double {}({}) {{", name, args_str));
+                self.push_line(&format!("{} {}({}) {{", return_type, name, args_str));
                 self.indent_level += 1;
-                self.push_line("size_t _arena_save = global_arena.offset;");
                 for b in body {
                     self.gen_statement(b);
                 }
-                
-                // Add a default return if needed, but not required for MVP
-                self.push_line("global_arena.offset = _arena_save;");
                 self.indent_level -= 1;
                 self.push_line("}");
+                self.var_types = saved_types;
             }
             Statement::Enforce { name, condition: _, crash_msg } => {
+                let message = self.gen_expr(crash_msg);
                 self.push_line(&format!("if ({name} == NULL || strlen({name}) == 0) {{"));
                 self.indent_level += 1;
-                self.push_line(&format!("fprintf(stderr, \"{}\\n\");", crash_msg));
+                self.push_line(&format!("fprintf(stderr, \"%s\\n\", {});", message));
                 self.push_line("exit(1);");
                 self.indent_level -= 1;
                 self.push_line("}");
@@ -335,15 +587,7 @@ Dictionary syl_dict_from_json(String j) {{
                 let val_str = self.gen_expr(value);
                 let is_new = !self.var_types.contains_key(name);
                 
-                let v_type = if let Expr::Number(_) = value {
-                    "double".to_string()
-                } else if let Expr::StringLit(_) = value {
-                    "String".to_string()
-                } else if let Expr::Join { .. } = value {
-                    "String".to_string()
-                } else {
-                    self.var_types.get(name).cloned().unwrap_or("double".to_string())
-                };
+                let v_type = self.expr_type(value).to_string();
 
                 if is_new {
                     self.var_types.insert(name.clone(), v_type.clone());
@@ -404,15 +648,7 @@ Dictionary syl_dict_from_json(String j) {{
             }
             Statement::Print { value } => {
                 let val_str = self.gen_expr(value);
-                let v_type = if let Expr::Number(_) = value {
-                    "double".to_string()
-                } else if let Expr::StringLit(_) = value {
-                    "String".to_string()
-                } else if let Expr::Identifier(id) = value {
-                    self.var_types.get(id).cloned().unwrap_or("double".to_string())
-                } else {
-                    "double".to_string()
-                };
+                let v_type = self.expr_type(value).to_string();
 
                 if v_type == "double" {
                     self.push_line(&format!("printf(\"%g\\n\", (double)({}));", val_str));
@@ -424,16 +660,10 @@ Dictionary syl_dict_from_json(String j) {{
                 let left_str = self.gen_expr(left);
                 let right_str = self.gen_expr(right);
                 
-                let v_type = if let Expr::Number(_) = left {
-                    "double".to_string()
-                } else if let Expr::StringLit(_) = left {
-                    "String".to_string()
-                } else if let Expr::StringLit(_) = right {
-                    "String".to_string()
-                } else if let Expr::Identifier(id) = left {
-                    self.var_types.get(id).cloned().unwrap_or("double".to_string())
+                let v_type = if self.expr_is_string(left) || self.expr_is_string(right) {
+                    "String"
                 } else {
-                    "double".to_string()
+                    "double"
                 };
 
                 if v_type == "String" {
@@ -464,6 +694,7 @@ Dictionary syl_dict_from_json(String j) {{
             }
             Statement::Read { path, identifier } => {
                 let path_str = self.gen_expr(path);
+                self.var_types.insert(identifier.clone(), "String".to_string());
                 self.push_line(&format!("String {} = \"\";", identifier));
                 self.push_line(&format!("{{ FILE *f = fopen({}, \"r\"); if (f) {{", path_str));
                 self.indent_level += 1;
@@ -477,6 +708,7 @@ Dictionary syl_dict_from_json(String j) {{
             }
             Statement::List { path, identifier } => {
                 let path_str = self.gen_expr(path);
+                self.var_types.insert(identifier.clone(), "List".to_string());
                 self.push_line(&format!("String* {} = syl_alloc(1024 * sizeof(String));", identifier));
                 self.push_line(&format!("int {}_count = 0;", identifier));
                 self.push_line(&format!("{{ DIR *d = opendir({}); if (d) {{", path_str));
@@ -507,6 +739,7 @@ Dictionary syl_dict_from_json(String j) {{
                 self.push_line("}");
             }
             Statement::ForEach { item, collection, body } => {
+                self.var_types.insert(item.clone(), "String".to_string());
                 self.push_line(&format!("for (int _i = 0; _i < {}_count; _i++) {{", collection));
                 self.indent_level += 1;
                 self.push_line(&format!("String {} = {}[_i];", item, collection));
@@ -524,9 +757,15 @@ Dictionary syl_dict_from_json(String j) {{
                     .map(|a| self.gen_expr(a))
                     .collect::<Vec<_>>()
                     .join(", ");
-                self.push_line(&format!("{}_{}({});", namespace, action, args_str));
+                let call = match (namespace.as_str(), action.as_str()) {
+                    ("libc", "puts") => format!("puts({})", args_str),
+                    ("libc", "system") => format!("system({})", args_str),
+                    _ => format!("{}_{}({})", namespace, action, args_str),
+                };
+                self.push_line(&format!("{};", call));
             }
             Statement::CreateList { name, items } => {
+                self.var_types.insert(name.clone(), "List".to_string());
                 self.push_line(&format!("String* {} = syl_alloc(1024 * sizeof(String));", name));
                 self.push_line(&format!("int {}_count = 0;", name));
                 for item in items {
@@ -539,7 +778,7 @@ Dictionary syl_dict_from_json(String j) {{
                 self.push_line(&format!("{}[{}_count++] = syl_strdup({});", list_name, list_name, val));
             }
             Statement::CallAction { name, args } => {
-                let c_name = if name.starts_with("ui_") { &name[3..] } else { name };
+                let c_name = name.strip_prefix("ui_").unwrap_or(name);
                 if c_name == "DrawText" {
                     let x = self.gen_expr(&args[args.len()-2]);
                     let y = self.gen_expr(&args[args.len()-1]);
@@ -552,16 +791,12 @@ Dictionary syl_dict_from_json(String j) {{
                         let mut fmt = String::new();
                         let mut vals = Vec::new();
                         for part in text_parts {
-                            match part {
-                                Expr::StringLit(_) => {
-                                    fmt.push_str("%s");
-                                    vals.push(self.gen_expr(part));
-                                }
-                                _ => {
-                                    fmt.push_str("%d");
-                                    vals.push(self.gen_expr(part));
-                                }
+                            if self.expr_is_string(part) {
+                                fmt.push_str("%s");
+                            } else {
+                                fmt.push_str("%g");
                             }
+                            vals.push(self.gen_expr(part));
                         }
                         self.push_line(&format!("DrawText(TextFormat(\"{}\", {}), {}, {}, 20, RAYWHITE);", fmt, vals.join(", "), x, y));
                     }
@@ -593,7 +828,7 @@ Dictionary syl_dict_from_json(String j) {{
                 }
             }
             Statement::WhileNot { condition_action, body } => {
-                let c_cond = if condition_action.starts_with("ui_") { &condition_action[3..] } else { &condition_action };
+                let c_cond = condition_action.strip_prefix("ui_").unwrap_or(condition_action);
                 self.push_line(&format!("while (!{}()) {{", c_cond));
                 self.indent_level += 1;
                 let is_game_loop = c_cond == "WindowShouldClose";
@@ -661,13 +896,13 @@ Dictionary syl_dict_from_json(String j) {{
                 self.push_line("}");
             }
             Statement::DefineEntity { name, fields, .. } => {
-                self.push_line(&format!("typedef struct {{"));
+                self.push_line("typedef struct {");
                 self.indent_level += 1;
                 for (f_name, f_val) in fields {
-                    if let Expr::Number(_) = f_val {
-                        self.push_line(&format!("int {};", f_name));
-                    } else {
+                    if matches!(f_val, Expr::StringLit(_)) {
                         self.push_line(&format!("String {};", f_name));
+                    } else {
+                        self.push_line(&format!("double {};", f_name));
                     }
                 }
                 self.indent_level -= 1;
@@ -696,27 +931,35 @@ Dictionary syl_dict_from_json(String j) {{
             }
             Statement::Download { url, target } => {
                 let url_str = self.gen_expr(url);
-                self.push_line(&format!("String {} = \"\"; // Download target", target));
-                self.push_line(&format!("{{ char cmd[1024]; sprintf(cmd, \"curl -s %s -o tmp_download.txt\", {}); system(cmd); }}", url_str));
-                self.push_line(&format!("// [ HELIX BORROWED ] {} tagged as temporary until verification.", target));
+                self.var_types.insert(target.clone(), "String".to_string());
+                self.push_line(&format!("String {} = \"\";", target));
+                self.push_line(&format!("{{ char cmd[2048]; snprintf(cmd, sizeof(cmd), \"curl -fsSL -- %s -o .syl_download.tmp\", {});", url_str));
+                self.push_line("    int download_status = system(cmd);");
+                self.push_line("    if (download_status == 0) {");
+                self.push_line("        FILE *f = fopen(\".syl_download.tmp\", \"rb\");");
+                self.push_line("        if (f) { fseek(f, 0, SEEK_END); long size = ftell(f); fseek(f, 0, SEEK_SET);");
+                self.push_line(&format!("            {} = syl_alloc((size_t)size + 1); fread({}, 1, (size_t)size, f); {}[size] = 0; fclose(f);", target, target, target));
+                self.push_line("        } else { _syl_last_error = \"Download output could not be read\"; }");
+                self.push_line("    } else { _syl_last_error = \"Download failed\"; }");
+                self.push_line("    remove(\".syl_download.tmp\"); }");
             }
             Statement::DefineBehavior { entity_name, action_name, args, body, .. } => {
+                let saved_types = self.var_types.clone();
+                self.var_types.insert("self".to_string(), entity_name.clone());
                 let mut params = vec![format!("{}* self", entity_name)];
                 for a in args {
+                    self.var_types.insert(a.clone(), "double".to_string());
                     params.push(format!("double {}", a));
                 }
                 let param_str = params.join(", ");
                 self.push_line(&format!("void {}_{}({}) {{", entity_name, action_name, param_str));
                 self.indent_level += 1;
-                self.push_line("size_t _arena_save = global_arena.offset;");
-                
                 for b in body {
                     self.gen_statement(b);
                 }
-                
-                self.push_line("global_arena.offset = _arena_save;");
                 self.indent_level -= 1;
                 self.push_line("}");
+                self.var_types = saved_types;
             }
             Statement::TriggerBehavior { action_name, instance, args } => {
                 if let Some(entity_type) = self.var_types.get(instance) {
@@ -731,6 +974,7 @@ Dictionary syl_dict_from_json(String j) {{
             }
             Statement::ListWords { source, identifier } => {
                 let src_str = self.gen_expr(source);
+                self.var_types.insert(identifier.clone(), "List".to_string());
                 self.push_line(&format!("String* {} = syl_alloc(1024 * sizeof(String));", identifier));
                 self.push_line(&format!("int {}_count = 0;", identifier));
                 self.push_line(&format!("{{ char* s = syl_strdup({}); char* tok = strtok(s, \" \t\\n\");", src_str));
@@ -792,18 +1036,25 @@ Dictionary syl_dict_from_json(String j) {{
             }
             Statement::ListenHttp { port } => {
                 let p = self.gen_expr(port);
-                self.push_line(&format!("// SYL HTTP SERVER BOILERPLATE"));
+                self.push_line("// SYL HTTP SERVER BOILERPLATE");
                 self.push_line("{");
                 self.indent_level += 1;
+                self.push_line("#ifdef _WIN32");
                 self.push_line("WSADATA wsa; WSAStartup(MAKEWORD(2,2), &wsa);");
-                self.push_line(&format!("SOCKET server = socket(AF_INET, SOCK_STREAM, 0);"));
+                self.push_line("#endif");
+                self.push_line("SOCKET server = socket(AF_INET, SOCK_STREAM, 0);");
                 self.push_line("struct sockaddr_in saddr; saddr.sin_family = AF_INET; saddr.sin_addr.s_addr = INADDR_ANY;");
                 self.push_line(&format!("saddr.sin_port = htons({});", p));
                 self.push_line("bind(server, (struct sockaddr *)&saddr, sizeof(saddr));");
                 self.push_line("listen(server, 3);");
                 self.push_line("while(1) {");
                 self.indent_level += 1;
-                self.push_line("struct sockaddr_in client; int csize = sizeof(client);");
+                self.push_line("struct sockaddr_in client;");
+                self.push_line("#ifdef _WIN32");
+                self.push_line("int csize = sizeof(client);");
+                self.push_line("#else");
+                self.push_line("socklen_t csize = sizeof(client);");
+                self.push_line("#endif");
                 self.push_line("_syl_current_client = accept(server, (struct sockaddr *)&client, &csize);");
                 self.push_line("if (_syl_current_client != INVALID_SOCKET) {");
                 self.indent_level += 1;
@@ -866,7 +1117,7 @@ Dictionary syl_dict_from_json(String j) {{
             Statement::ConnectDB { path, identifier } => {
                 let p = self.gen_expr(path);
                 self.var_types.insert(identifier.clone(), "Database".to_string());
-                self.push_line(&format!("Database {} = syl_db_connect({});", identifier, p));
+                self.push_line(&format!("{} = syl_db_connect({});", identifier, p));
             }
             Statement::ExecuteQuery { query, db_identifier, results_list } => {
                 let q = self.gen_expr(query);
@@ -992,27 +1243,29 @@ Dictionary syl_dict_from_json(String j) {{
 
     }
 
+    fn resolve_action_name(&self, action: &str) -> String {
+        let qualified = action.replace('.', "_");
+        if self.action_return_types.contains_key(&qualified) {
+            return qualified;
+        }
+        self.action_return_types.keys()
+            .find(|name| name.ends_with(&format!("_{}", action)))
+            .cloned()
+            .unwrap_or(qualified)
+    }
+
     fn expr_is_string(&self, expr: &Expr) -> bool {
         match expr {
-            Expr::StringLit(_) => true,
-            Expr::Join { .. } => true,
-            Expr::Identifier(name) => {
-                self.var_types.get(name.as_str()).map_or(false, |t| t == "String")
+            Expr::StringLit(_) | Expr::Join { .. } | Expr::CurrentDate
+            | Expr::JsonFromDict { .. } => true,
+            Expr::Identifier(name) => self.var_types.get(name).is_some_and(|ty| ty == "String"),
+            Expr::GetDictKey { .. } => true,
+            Expr::Call { action, .. } => {
+                let action = self.resolve_action_name(action);
+                self.action_return_types.get(&action).is_some_and(|ty| ty == "String")
             }
-            Expr::GetField { entity_instance, field_name } => {
-                // If the entity field is known to be string type, return true
-                let entity_type = self.var_types.get(entity_instance.as_str());
-                if let Some(etype) = entity_type {
-                    if let Some(defs) = self.entity_defs.get(etype.as_str()) {
-                        for (fname, fexpr) in defs {
-                            if fname == field_name {
-                                return matches!(fexpr, Expr::StringLit(_));
-                            }
-                        }
-                    }
-                }
-                false
-            }
+            Expr::GetField { entity_instance, field_name } => self.entity_field_is_string(entity_instance, field_name),
+            Expr::SelfField { field_name } => self.entity_field_is_string("self", field_name),
             _ => false,
         }
     }
@@ -1027,7 +1280,7 @@ Dictionary syl_dict_from_json(String j) {{
                     .map(|a| self.gen_expr(a))
                     .collect::<Vec<_>>()
                     .join(", ");
-                let c_action = action.replace(".", "_");
+                let c_action = self.resolve_action_name(action);
                 format!("{}({})", c_action, args_str)
             }
             Expr::GetField { field_name, entity_instance } => {
@@ -1052,7 +1305,9 @@ Dictionary syl_dict_from_json(String j) {{
                 format!("pow({}, {})", self.gen_expr(base), self.gen_expr(exponent))
             }
             Expr::Random { min, max } => {
-                format!("(rand() % ({} - {} + 1) + {})", self.gen_expr(max), self.gen_expr(min), self.gen_expr(min))
+                let min = self.gen_expr(min);
+                let max = self.gen_expr(max);
+                format!("((int)(floor((double)rand() / ((double)RAND_MAX + 1.0) * (({}) - ({}) + 1.0)) + ({})))", max, min, min)
             }
             Expr::FileSize { path } => {
                 format!("({{ struct stat st; stat({}, &st); (int)st.st_size; }})", self.gen_expr(path))
@@ -1076,7 +1331,11 @@ Dictionary syl_dict_from_json(String j) {{
                     BinOp::And => "&&",
                     BinOp::Or  => "||",
                 };
-                format!("({} {} {})", l, op_str, r)
+                if matches!(op, BinOp::Mod) {
+                    format!("fmod({}, {})", l, r)
+                } else {
+                    format!("({} {} {})", l, op_str, r)
+                }
             }
             Expr::UnaryNeg { value } => {
                 format!("(-{})", self.gen_expr(value))
@@ -1100,6 +1359,41 @@ Dictionary syl_dict_from_json(String j) {{
     }
 }
 
+fn has_graphics_usage(ast: &[Statement]) -> bool {
+    ast.iter().any(|stmt| match stmt {
+        Statement::Import { filename, body, .. } => filename == "ui" || has_graphics_usage(body),
+        Statement::CallAction { name, args } => {
+            name.starts_with("ui_") || matches!(name.as_str(), "InitWindow" | "BeginDrawing" | "EndDrawing" | "DrawText" | "DrawCircle" | "DrawRectangle" | "ClearBackground") || args.iter().any(expr_has_graphics)
+        }
+        Statement::External { namespace, .. } => namespace == "ui",
+        Statement::IfKeyPressed { body, .. }
+        | Statement::While { body, .. }
+        | Statement::WhileNot { body, .. }
+        | Statement::Repeat { body, .. }
+        | Statement::ForEach { body, .. }
+        | Statement::IfEndsWith { body, .. } => has_graphics_usage(body),
+        Statement::IfExpr { then_branch, else_branch, .. } => {
+            has_graphics_usage(then_branch) || else_branch.as_ref().is_some_and(|branch| has_graphics_usage(branch))
+        }
+        Statement::IfElse { then_branch, else_branch, .. } => {
+            has_graphics_usage(then_branch) || else_branch.as_ref().is_some_and(|branch| has_graphics_usage(branch))
+        }
+        Statement::DefineAction { body, .. } | Statement::DefineBehavior { body, .. } => has_graphics_usage(body),
+        _ => false,
+    })
+}
+
+fn expr_has_graphics(expr: &Expr) -> bool {
+    match expr {
+        Expr::DeltaTime | Expr::MouseX | Expr::MouseY => true,
+        Expr::Join { left, right } | Expr::BinaryOp { left, right, .. } => expr_has_graphics(left) || expr_has_graphics(right),
+        Expr::UnaryNeg { value } | Expr::Sqrt { value } | Expr::FileSize { path: value } => expr_has_graphics(value),
+        Expr::Pow { base, exponent } | Expr::Random { min: base, max: exponent } => expr_has_graphics(base) || expr_has_graphics(exponent),
+        Expr::Call { args, .. } => args.iter().any(expr_has_graphics),
+        _ => false,
+    }
+}
+
 fn has_db_usage(ast: &[Statement]) -> bool {
     for stmt in ast {
         match stmt {
@@ -1119,9 +1413,17 @@ fn has_db_usage(ast: &[Statement]) -> bool {
                     if has_db_usage(else_b) { return true; }
                 }
             }
-            Statement::IfEndsWith { body, .. } | Statement::IfKeyPressed { body, .. } => {
+            Statement::IfEndsWith { body, .. } | Statement::IfKeyPressed { body, .. }
+            | Statement::HttpRequestRoute { body, .. } => {
                 if has_db_usage(body) { return true; }
             }
+            Statement::IfElse { then_branch, else_branch, .. } => {
+                if has_db_usage(then_branch) { return true; }
+                if let Some(branch) = else_branch {
+                    if has_db_usage(branch) { return true; }
+                }
+            }
+            Statement::Attempt { action } if has_db_usage(std::slice::from_ref(action.as_ref())) => return true,
             _ => {}
         }
     }
@@ -1131,6 +1433,7 @@ fn has_db_usage(ast: &[Statement]) -> bool {
 fn has_net_usage(ast: &[Statement]) -> bool {
     for stmt in ast {
         match stmt {
+            Statement::ListenHttp { .. } => return true,
             Statement::HttpRequestRoute { .. } => return true,
             Statement::DefineAction { body, .. } => {
                 if has_net_usage(body) { return true; }
@@ -1150,6 +1453,13 @@ fn has_net_usage(ast: &[Statement]) -> bool {
             Statement::IfEndsWith { body, .. } | Statement::IfKeyPressed { body, .. } => {
                 if has_net_usage(body) { return true; }
             }
+            Statement::IfElse { then_branch, else_branch, .. } => {
+                if has_net_usage(then_branch) { return true; }
+                if let Some(branch) = else_branch {
+                    if has_net_usage(branch) { return true; }
+                }
+            }
+            Statement::Attempt { action } if has_net_usage(std::slice::from_ref(action.as_ref())) => return true,
             _ => {}
         }
     }

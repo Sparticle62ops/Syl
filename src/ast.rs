@@ -95,7 +95,7 @@ pub enum Statement {
     SetItem { index: Expr, list: String, value: Expr },
     Increase { name: String, amount: Expr },
     
-    Enforce { name: String, condition: String, crash_msg: String },
+    Enforce { name: String, condition: String, crash_msg: Expr },
 
     IfKeyPressed { key: String, body: Vec<Statement> },
     DrawRect { x: Expr, y: Expr, w: Expr, h: Expr, color: Expr },
