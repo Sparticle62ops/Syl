@@ -5,7 +5,7 @@ mod ir;
 mod codegen;
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use lexer::Lexer;
 use parser::Parser;
 use ir::IRGenerator;
@@ -189,8 +189,17 @@ fn main() {
             url = url.replace("HLX-", "https://transfer.sh/");
         }
         let dl_name = url.split('/').next_back().unwrap_or("downloaded.syx");
-        let local_app_data = std::env::var("LOCALAPPDATA").expect("Could not find LOCALAPPDATA");
-        let lib_dir = Path::new(&local_app_data).join("Syl").join("lib");
+        let app_data = if cfg!(target_os = "windows") {
+            std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
+        } else {
+            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local").join("share"))
+        }
+        .ok_or("Could not determine the user data directory")
+        .unwrap_or_else(|error| {
+            eprintln!("[ ERROR ] {}", error);
+            std::process::exit(1);
+        });
+        let lib_dir = app_data.join("Syl").join("lib");
         
         if !lib_dir.exists() {
             fs::create_dir_all(&lib_dir).unwrap();
