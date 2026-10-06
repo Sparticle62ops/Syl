@@ -87,7 +87,7 @@ fn update_user_path(bin_dir: &Path) {
 
     // Fetch current user PATH using PowerShell
     let output = Command::new("powershell")
-        .args(&["-NoProfile", "-Command", "[Environment]::GetEnvironmentVariable('Path', 'User')"])
+        .args(["-NoProfile", "-Command", "[Environment]::GetEnvironmentVariable('Path', 'User')"])
         .output()
         .expect("Failed to execute powershell to read PATH");
 
@@ -107,7 +107,7 @@ fn update_user_path(bin_dir: &Path) {
 
     // Set new PATH using setx
     let setx_status = Command::new("setx")
-        .args(&["PATH", &current_path])
+        .args(["PATH", &current_path])
         .status()
         .expect("Failed to execute setx");
 

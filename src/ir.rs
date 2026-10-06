@@ -16,13 +16,17 @@ impl IRGenerator {
         }
     }
 
-    fn b52(val: usize) -> char {
-        let val = val % 52;
-        if val < 26 {
-            (b'A' + val as u8) as char
-        } else {
-            (b'a' + (val - 26) as u8) as char
+    fn b52(mut value: usize) -> String {
+        const DIGITS: &[u8; 52] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+        let mut encoded = Vec::new();
+        loop {
+            encoded.push(DIGITS[value % 52] as char);
+            value /= 52;
+            if value == 0 {
+                break;
+            }
         }
+        encoded.into_iter().rev().collect()
     }
 
     fn get_reg(&mut self, name: &str) -> usize {
@@ -355,8 +359,22 @@ impl IRGenerator {
     }
 
     fn emit(&mut self, op: char, typ: char, arg1: usize, arg2: usize) {
-        let ins = format!("{}{}{}{}", op, typ, Self::b52(arg1), Self::b52(arg2));
+        // Registers are delimited because Base-52 values are variable length.
+        // This keeps register 0 distinct from register 52 and beyond.
+        let ins = format!("{}{}{}:{}", op, typ, Self::b52(arg1), Self::b52(arg2));
         self.instructions.push(ins);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::IRGenerator;
+
+    #[test]
+    fn base52_register_encoding_does_not_wrap() {
+        let mut ir = IRGenerator::new();
+        ir.emit('A', 'O', 0, 52);
+        assert_eq!(ir.instructions[1], "AOA:BA");
     }
 }
 

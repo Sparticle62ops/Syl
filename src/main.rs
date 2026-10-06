@@ -3,8 +3,6 @@ mod lexer;
 mod parser;
 mod ir;
 mod codegen;
-mod emit_native;
-mod runtime;
 
 use std::fs;
 use std::path::Path;
@@ -12,7 +10,6 @@ use lexer::Lexer;
 use parser::Parser;
 use ir::IRGenerator;
 use codegen::CodeGen;
-use emit_native::NativeEmitter;
 
 mod tui;
 
@@ -72,7 +69,7 @@ fn main() {
             println!("Cloning emsdk repository...");
             let git_cmd = find_git();
             std::process::Command::new(&git_cmd)
-                .args(&["clone", "https://github.com/emscripten-core/emsdk.git"])
+                .args(["clone", "https://github.com/emscripten-core/emsdk.git"])
                 .current_dir(tools_dir)
                 .status()
                 .expect("Failed to clone emsdk. Ensure git is available.");
@@ -86,7 +83,7 @@ fn main() {
             std::process::Command::new("./emsdk")
         };
         install_cmd
-            .args(&["install", "latest"])
+            .args(["install", "latest"])
             .current_dir(&emsdk_dir)
             .status()
             .expect("Failed to install emsdk");
@@ -100,7 +97,7 @@ fn main() {
             std::process::Command::new("./emsdk")
         };
         activate_cmd
-            .args(&["activate", "latest"])
+            .args(["activate", "latest"])
             .current_dir(&emsdk_dir)
             .status()
             .expect("Failed to activate emsdk");
@@ -123,7 +120,7 @@ fn main() {
     if command == "share" {
         println!("{}[ \u{1F9EC} SYL NETWORK ]{} Uploading {}...", ANSI_BOLD_CYAN, ANSI_RESET, filename);
         let output = std::process::Command::new("curl")
-            .args(&["-T", filename, &format!("https://transfer.sh/{}", filename)])
+            .args(["-T", filename, &format!("https://transfer.sh/{}", filename)])
             .output()
             .expect("Failed to execute curl");
         
@@ -144,7 +141,11 @@ fn main() {
         let mut child: Option<std::process::Child> = None;
         let file_path = Path::new(filename);
         let file_stem = file_path.file_stem().unwrap().to_str().unwrap();
-        let exe_filename = format!("{}.exe", file_stem);
+        let exe_filename = if cfg!(target_os = "windows") {
+            format!("{}.exe", file_stem)
+        } else {
+            file_stem.to_string()
+        };
 
         let compile_and_run = |child: &mut Option<std::process::Child>| {
             if let Some(mut c) = child.take() {
@@ -187,7 +188,7 @@ fn main() {
         if url.starts_with("HLX-") {
             url = url.replace("HLX-", "https://transfer.sh/");
         }
-        let dl_name = url.split('/').last().unwrap_or("downloaded.syx");
+        let dl_name = url.split('/').next_back().unwrap_or("downloaded.syx");
         let local_app_data = std::env::var("LOCALAPPDATA").expect("Could not find LOCALAPPDATA");
         let lib_dir = Path::new(&local_app_data).join("Syl").join("lib");
         
@@ -197,7 +198,7 @@ fn main() {
         
         println!("{}[ \u{1F9EC} SYL NETWORK ]{} Downloading {}...", ANSI_BOLD_CYAN, ANSI_RESET, dl_name);
         let status = std::process::Command::new("curl")
-            .args(&["-sL", &url, "-o", dl_name])
+            .args(["-sL", &url, "-o", dl_name])
             .current_dir(&lib_dir)
             .status()
             .expect("Failed to execute curl");
@@ -346,7 +347,7 @@ fn main() {
             for feat in tui_features {
                 md.push_str(&format!("{}\n", feat));
             }
-            md.push_str("\n");
+            md.push('\n');
         }
         
         let doc_filename = docs_dir.join(format!("{}.md", file_stem));
@@ -374,33 +375,13 @@ fn main() {
     println!("[ HELIX ] GENERATED: {}", hlx_filename);
 
     let final_is_standalone = is_standalone || parser.metadata.target == "executable";
-
     if final_is_standalone {
-        println!("[ HELIX ] NATIVE: Initializing Cranelift Native Pipeline...");
-        let mut native = NativeEmitter::new();
-        if is_release {
-            println!("[ HELIX ] OPTIMIZING: Setting Cranelift to 'Speed and Size' mode.");
-            // Note: In a real implementation, you'd pass the flag to NativeEmitter
-        }
-        native.compile_ast(&ast);
-        let obj_data = native.finish();
-        
-        let obj_filename = format!("{}.obj", file_stem);
-        fs::write(&obj_filename, &obj_data).unwrap_or_else(|_| {
-            eprintln!("Failed to write {}", obj_filename);
-        });
-        
-        let exe_filename = if cfg!(target_os = "windows") {
-            format!("{}.exe", file_stem)
-        } else {
-            file_stem.to_string()
-        };
-
-        NativeEmitter::invoke_linker(&obj_filename, &exe_filename);
-        return;
+        println!("[ HELIX ] STANDALONE: using the verified C backend.");
+        println!("[ HELIX ] NOTE: Cranelift emission is experimental and does not yet provide an entry point.");
     }
 
-    // Generate C Code (Fallback / Default mode)
+    // Generate C Code. This is the complete backend for both normal and
+    // standalone programs; do not emit an object file without an entry point.
     let mut codegen = CodeGen::new();
     
     // Separate definitions (actions, entities, externals) from top-level logic
@@ -438,6 +419,10 @@ fn main() {
     codegen.generate(&globals);
     c_final.push_str(&codegen.c_code);
     
+    for database in collect_database_names(&ast) {
+        c_final.push_str(&format!("Database {} = NULL;\n", database));
+    }
+
     // Add HTTP dispatch function
     c_final.push_str("\nvoid syl_http_dispatch(String path, SOCKET client) {\n");
     c_final.push_str(&codegen.http_dispatch_code);
@@ -506,44 +491,95 @@ fn main() {
             return;
         }
 
-        println!("[ HELIX ] BUILDING: Compiling with TCC...");
-        let tcc_path = find_tcc();
-        let exe_filename = format!("{}.exe", file_stem);
-        
-        let mut tcc_args = vec![&c_filename, "raylib.dll"];
-        if codegen.use_net {
-            tcc_args.push("ws2_32.dll");
+        println!("[ HELIX ] BUILDING: Compiling generated C...");
+        let compiler = find_tcc();
+        let exe_filename = if cfg!(target_os = "windows") {
+            format!("{}.exe", file_stem)
+        } else {
+            file_stem.to_string()
+        };
+
+        let mut compiler_args = vec![c_filename.clone(), "-I.".to_string(), "-L.".to_string(), "-o".to_string(), exe_filename.clone()];
+        if codegen.use_raylib {
+            compiler_args.push("raylib.dll".to_string());
+        }
+        if codegen.use_net && cfg!(target_os = "windows") {
+            compiler_args.push("ws2_32.dll".to_string());
         }
         if codegen.use_sqlite {
-            tcc_args.push("sqlite3.dll");
+            if cfg!(target_os = "windows") {
+                compiler_args.push("sqlite3.dll".to_string());
+            } else {
+                compiler_args.push("-lsqlite3".to_string());
+            }
         }
-        tcc_args.extend_from_slice(&["-I.", "-L.", "-o", &exe_filename]);
-
+        if !cfg!(target_os = "windows") {
+            compiler_args.push("-lm".to_string());
+        }
         if is_release {
             println!("[ HELIX ] OPTIMIZING: Enabling -O3 production flags.");
-            tcc_args.push("-O3");
+            compiler_args.push("-O3".to_string());
         }
 
-        let status = std::process::Command::new(&tcc_path)
-            .args(&tcc_args)
-            .status();
-
-        if let Ok(s) = status {
-            if s.success() {
+        match std::process::Command::new(&compiler).args(&compiler_args).status() {
+            Ok(status) if status.success() => {
                 println!("[ HELIX ] SUCCESS: Binary \"{}\" generated.", exe_filename);
                 if !is_build_only {
                     println!("[ HELIX ] RUNNING: Executing {}...", exe_filename);
-                    let _ = std::process::Command::new(format!("./{}", exe_filename)).status();
+                    let run_path = Path::new(&exe_filename);
+                    let _ = std::process::Command::new(run_path).status();
                 }
-            } else {
-                eprintln!("[ HELIX ] ERROR: TCC compilation failed.");
             }
-        } else {
-            eprintln!("[ HELIX ] ERROR: Could not find TCC at {}.", tcc_path);
+            Ok(status) => {
+                eprintln!("[ HELIX ] ERROR: C compiler exited with status {}.", status);
+                std::process::exit(1);
+            }
+            Err(error) => {
+                eprintln!("[ HELIX ] ERROR: Could not execute C compiler '{}': {}.", compiler, error);
+                std::process::exit(1);
+            }
         }
     } else {
         println!("[ HELIX ] SUCCESS: Production binary ready at ./{}", file_stem);
     }
+}
+
+fn collect_database_names(ast: &[crate::ast::Statement]) -> Vec<String> {
+    let mut names = Vec::new();
+    fn visit(stmts: &[crate::ast::Statement], names: &mut Vec<String>) {
+        for stmt in stmts {
+            match stmt {
+                crate::ast::Statement::ConnectDB { identifier, .. } => {
+                    if !names.contains(identifier) {
+                        names.push(identifier.clone());
+                    }
+                }
+                crate::ast::Statement::Import { body, .. }
+                | crate::ast::Statement::DefineAction { body, .. }
+                | crate::ast::Statement::DefineBehavior { body, .. }
+                | crate::ast::Statement::While { body, .. }
+                | crate::ast::Statement::WhileNot { body, .. }
+                | crate::ast::Statement::Repeat { body, .. }
+                | crate::ast::Statement::ForEach { body, .. }
+                | crate::ast::Statement::IfKeyPressed { body, .. }
+                | crate::ast::Statement::IfEndsWith { body, .. }
+                | crate::ast::Statement::HttpRequestRoute { body, .. }
+                | crate::ast::Statement::IfFailed { body }
+                | crate::ast::Statement::IfSucceeded { body } => visit(body, names),
+                crate::ast::Statement::IfExpr { then_branch, else_branch, .. }
+                | crate::ast::Statement::IfElse { then_branch, else_branch, .. } => {
+                    visit(then_branch, names);
+                    if let Some(branch) = else_branch {
+                        visit(branch, names);
+                    }
+                }
+                crate::ast::Statement::Attempt { action } => visit(std::slice::from_ref(action.as_ref()), names),
+                _ => {}
+            }
+        }
+    }
+    visit(ast, &mut names);
+    names
 }
 
 fn find_tcc() -> String {
@@ -583,15 +619,20 @@ fn find_tcc() -> String {
         }
     }
     
-    // 4. Fallback relative to cwd
-    "tools/tcc/tcc/tcc.exe".to_string()
+    // Keep the portable Windows layout as the first documented fallback, but
+    // use the platform C compiler when TCC is not installed (common on Unix).
+    if cfg!(target_os = "windows") {
+        "tools/tcc/tcc/tcc.exe".to_string()
+    } else {
+        "cc".to_string()
+    }
 }
 
 fn find_emcc() -> String {
     let cmd = if cfg!(target_os = "windows") { "emcc.bat" } else { "emcc" };
     
     // 1. Check if it's in PATH
-    if let Ok(_) = std::process::Command::new(cmd).arg("--version").output() {
+    if std::process::Command::new(cmd).arg("--version").output().is_ok() {
         return cmd.to_string();
     }
     
@@ -652,6 +693,7 @@ fn find_git() -> String {
     "git".to_string() // fallback
 }
 
+#[allow(clippy::manual_flatten)]
 fn serve_wasm_dir(dir: &str, port: u16) {
     use std::net::TcpListener;
     use std::io::{Read, Write};
@@ -732,6 +774,49 @@ fn serve_wasm_dir(dir: &str, port: u16) {
                     }
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{lexer::Lexer, parser::Parser};
+    use std::collections::HashSet;
+    use std::fs;
+    use std::path::PathBuf;
+
+    #[test]
+    fn repository_programs_have_expected_parse_results() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let mut sources = fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "syl"))
+            .collect::<Vec<_>>();
+        sources.extend(
+            fs::read_dir(root.join("examples"))
+                .unwrap()
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .filter(|path| path.extension().is_some_and(|ext| ext == "syl")),
+        );
+        sources.sort();
+
+        for path in sources {
+            let source = fs::read_to_string(&path).unwrap();
+            let mut lexer = Lexer::new(&source);
+            let tokens = lexer.tokenize();
+            let mut imported = HashSet::new();
+            imported.insert(path.to_string_lossy().to_string());
+            let base = path.parent().unwrap_or(&root);
+            let mut parser = Parser::new(tokens, base, &mut imported);
+            let result = parser.parse();
+            let expected_error = matches!(
+                path.file_name().and_then(|name| name.to_str()),
+                Some("error_test.syl") | Some("test_package.syl")
+            );
+            assert_eq!(result.is_err(), expected_error, "unexpected parse result for {}: {:?}", path.display(), result.err());
         }
     }
 }
